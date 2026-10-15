@@ -296,21 +296,30 @@
   // The L / M / R mouse-button row under the touchpad: hidden only when a container holds exactly those buttons,
   // so the keyboard's own L, M and R keys are never touched.
   var LMR_RE = /^(l m r|l r|left middle right)$/;
+  function kidWords(el) {   // child by child, so tightly packed <div>L</div><div>M</div><div>R</div> still reads "l m r"
+    var out = [];
+    for (var i = 0; i < el.children.length; i++) out.push((el.children[i].textContent || '').trim().toLowerCase());
+    return out.join(' ');
+  }
   function applyLmr() {
     var old = document.querySelectorAll('[data-pdlmr]'), i;
+    if (document.querySelector('[data-setting="mbtns"]')) {   // the page has its own switch: just undo anything we hid
+      for (i = 0; i < old.length; i++) old[i].removeAttribute('data-pdlmr');
+      return;
+    }
     if (!cfg.hideLmr) { for (i = 0; i < old.length; i++) old[i].removeAttribute('data-pdlmr'); return; }
     var els = document.querySelectorAll('div,section,nav,ul,span');
     for (i = 0; i < els.length; i++) {
       var el = els[i], k = el.childElementCount;
       if (k < 2 || k > 3 || el.hasAttribute('data-pdlmr') || el.closest('#pd-set,#pd-sugbar')) continue;
-      if (!LMR_RE.test(words(el))) continue;
+      if (!LMR_RE.test(kidWords(el))) continue;
       var h = el;   // climb out of single-child wrappers so no empty gap stays behind
       while (h.parentElement && h.parentElement.childElementCount === 1 && h.parentElement !== document.body) h = h.parentElement;
       h.setAttribute('data-pdlmr', '1');
     }
   }
   function applyUi() {
-    try { ensureStyle(); applyTabs(); applyPadControls(); applyLmr(); } catch (e) {}
+    try { ensureStyle(); applyTabs(); applyPadControls(); applyLmr(); applyFill(); } catch (e) {}
   }
   applyUi();
 
@@ -438,6 +447,7 @@
     h.style.cssText = 'font-weight:700;margin-bottom:8px;color:#4DA3FF';
     d.appendChild(h);
     TOGGLES.forEach(function (t) {
+      if (t[0] === 'hidelmr' && document.querySelector('[data-setting="mbtns"]')) return;   // page has its own switch
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0';
       var lb = document.createElement('div');

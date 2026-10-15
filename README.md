@@ -49,7 +49,7 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 
 **Tabs & touchpad controls (v2.1)**
 - The PC page's tab bar (Keys, Numpad, Text, Touchpad, Files, Clipboard) becomes pill-shaped and slides sideways when it does not fit; the selected tab scrolls to the centre. The "Pretty scrolling tabs" switch in Settings turns it off.
-- Settings > "Touchpad: hide Speed/Scroll sliders and Left/Right buttons" hides those controls.
+- Settings > "Touchpad: hide Speed/Scroll sliders and Left/Right buttons" hides those controls, and the touchpad grows to fill the freed space.
 - Settings > "Touchpad: hide L / M / R buttons" hides the L / M / R mouse-button row in link mode.
 - Bluetooth mode: gear > "Show L / M / R buttons under the touchpad" hides or shows that row.
 
