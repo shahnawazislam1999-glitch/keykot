@@ -11,15 +11,6 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- suggestion bar: filled in by DeckActivity.buildSuggestionBar() -->
-        <LinearLayout
-            android:id="@+id/sugBar"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:background="@color/panel"
-            android:orientation="horizontal"
-            android:padding="2dp" />
-
         <!-- connection banner (only visible while there is a problem / just recovered) -->
         <TextView
             android:id="@+id/banner"

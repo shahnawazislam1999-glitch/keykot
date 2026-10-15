@@ -30,13 +30,13 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - Limits: Android 9+, some brands block it, US keyboard keys only, no files / clipboard / preview in this mode.
 
 ## Link mode (v2.0)
-**Word suggestions** (bar at the top, can be moved to the bottom in the gear menu)
-- Bar: gear | **Aa** on/off | 4 suggestions | connection dot + delay. Tap a suggestion: the rest of the word + a space is typed, so your half-typed word is replaced by the whole word. Long-press to forget a word.
-- **Aa** switches suggestions on/off at any time (off = nothing shown, nothing saved).
-- New words you finish typing are saved in the app's local storage and suggested next time; word pairs are saved too, so after a space it suggests the next word. Gear > Learned words clears them.
+**Word suggestions** - a thin strip appears inside the page, directly above the keyboard's top key row (Esc / F1..F12), only while there is something to suggest. No extra bar at the top of the screen.
+- Tap a suggestion: the rest of the word + a space is typed, so your half-typed word is replaced by the whole word. Long-press to forget a word.
+- New words you finish typing are saved in the app's local storage and suggested next time; word pairs are saved too, so after a space it suggests the next word.
 - Works for the page's on-screen keys, a text box (Android keyboard) and a physical keyboard. Password boxes are ignored.
+- **All PhoneDeck settings are in the page's own Settings (gear) panel**, in a "PhoneDeck app" section: suggestions on/off, next-word, Shift letters, pretty tabs, hide touchpad controls, clear learned words, reload, find PC, test keys, disconnect. If the panel is not recognised, the same list opens as an app dialog.
 
-**Shift** - letters on the page's keyboard show small normally and CAPITAL after Shift (symbols too: 1 becomes !). Tap Shift = next key only, double-tap Shift = Caps Lock, hold Shift while typing = capitals until you let go. Gear > "Shift changes the key letters" turns it off.
+**Shift** - letters on the page's keyboard show small normally and CAPITAL after Shift (symbols too: 1 becomes !). Tap Shift = next key only, double-tap Shift = Caps Lock, hold Shift while typing = capitals until you let go. The "Shift changes the key letters" switch in Settings turns it off.
 
 **Downloads** - done by the app itself into Downloads, always with the real file name (zip, apk, folders become Folder.zip). A bar shows progress, Open and cancel. Works for normal links, `<a download>` links and blob: downloads made by the page. If the name already exists, Android adds (1).
 
@@ -47,8 +47,13 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - **Find PC** (connect screen or error screen / gear menu) scans the network when the PC's IP changed and rewrites the link. **Recent** keeps the last 8 links. **Test link** says exactly why it cannot connect.
 - Gear > **Test key detection** shows which keys the helper script found on the PC page.
 
+**Tabs & touchpad controls (v2.1)**
+- The PC page's tab bar (Keys, Numpad, Text, Touchpad, Files, Clipboard) becomes pill-shaped and slides sideways when it does not fit; the selected tab scrolls to the centre. The "Pretty scrolling tabs" switch in Settings turns it off.
+- Settings > "Touchpad: hide Speed/Scroll sliders and Left/Right buttons" hides those controls.
+- Bluetooth mode: gear > "Show L / M / R buttons under the touchpad" hides or shows that row.
+
 ## Code map (search for `ANCHOR:`)
-`assets/pd.js` JS_SHIFT_SYNC, JS_SUGGEST, JS_INSERT, JS_DOWNLOADS, JS_PROBE | `DeckActivity.kt` DECK_CONNECTION, DECK_DOWNLOADS, DECK_SUGGESTION_BAR, DECK_MENU, DECK_BRIDGE | `Downloader.kt` DL_HTTP, DL_BLOB, DL_MEDIASTORE | `Names.kt` NAMES_CONFIG | `ConnectionGuard.kt` GUARD_BIND, GUARD_LOOP | `WordStore.kt` WORDSTORE_SUGGEST, WORDSTORE_LEARN | `Discovery.kt` DISCOVERY_SCAN
+`assets/pd.js` JS_UI_TABS, JS_SHIFT_SYNC, JS_SUGBAR, JS_SETTINGS, JS_SUGGEST, JS_INSERT, JS_DOWNLOADS, JS_PROBE | `DeckActivity.kt` DECK_CONNECTION, DECK_DOWNLOADS, DECK_SUGGESTIONS, DECK_MENU, DECK_BRIDGE | `Downloader.kt` DL_HTTP, DL_BLOB, DL_MEDIASTORE | `Names.kt` NAMES_CONFIG | `ConnectionGuard.kt` GUARD_BIND, GUARD_LOOP | `WordStore.kt` WORDSTORE_SUGGEST, WORDSTORE_LEARN | `Discovery.kt` DISCOVERY_SCAN
 
 ## Use (Wi-Fi mode)
 - Open PhoneDeck, tap **Paste & Connect** (copy the `http://192.168.x.x:8080/?key=...` link first).

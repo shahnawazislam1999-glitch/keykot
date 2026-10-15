@@ -5,6 +5,9 @@
  *   ANCHOR:JS_CONFIG        settings pushed from the app
  *   ANCHOR:JS_KEY_CLASSIFY  decides what a tapped element is (Shift, Space, a letter ...)
  *   ANCHOR:JS_SHIFT_SYNC    Shift / Caps state + small <-> CAPITAL key labels
+ *   ANCHOR:JS_UI_TABS      pretty scrolling tabs + hide touchpad slider/Left/Right controls
+ *   ANCHOR:JS_SUGBAR        suggestion strip drawn just above the keyboard's top key row
+ *   ANCHOR:JS_SETTINGS      PhoneDeck section inside the page's own Settings panel
  *   ANCHOR:JS_SUGGEST       word tracking for the suggestion bar
  *   ANCHOR:JS_INSERT        typing a chosen suggestion back into the page
  *   ANCHOR:JS_DOWNLOADS     real file names + blob downloads
@@ -18,10 +21,13 @@
   function call(fn) { try { return fn(); } catch (e) { return undefined; } }
 
   // ==== ANCHOR:JS_CONFIG ====
-  var cfg = { shiftLabels: true, symbols: true };
+  var cfg = { shiftLabels: true, symbols: true, tabs: true, hidePad: false, sugg: true, sugnext: true, learned: 0 };
   window.__pdConfig = function (o) {
     for (var k in o) { cfg[k] = o[k]; }
     applyCase();
+    applyUi();
+    renderBar();
+    refreshSection();
   };
 
   var KEY_SEL = 'button,[role=button],[data-key],[data-k],kbd,.key,[class*=key],[class*=Key]';
@@ -145,7 +151,7 @@
     try { if (mo) mo.takeRecords(); } catch (e) {}   // ignore the changes we just made
     applying = false;
   }
-  function schedApply() { clearTimeout(applyT); applyT = setTimeout(applyCase, 40); }
+  function schedApply() { clearTimeout(applyT); applyT = setTimeout(function () { applyCase(); applyUi(); }, 40); }
 
   function attachObserver() {
     if (observing || !document.documentElement) return;
@@ -159,6 +165,338 @@
   document.addEventListener('DOMContentLoaded', function () { attachObserver(); applyCase(); });
   window.addEventListener('load', function () { attachObserver(); applyCase(); setTimeout(applyCase, 400); });
   applyCase();
+  applyUi();
+
+
+  // ==== ANCHOR:JS_UI_TABS ====
+  // Pretty, horizontally scrolling tab bar + optional hiding of the touchpad tab's slider / Left / Right controls.
+  var STYLE_ID = 'pd-style';
+  var CSS =
+    '[data-pdtabs]{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;' +
+    '-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;scrollbar-width:none;gap:6px;padding:6px 8px!important;' +
+    'justify-content:flex-start!important;touch-action:pan-x;overscroll-behavior-x:contain;box-sizing:border-box}' +
+    '[data-pdtabs]::-webkit-scrollbar{display:none}' +
+    '[data-pdtabs]>[data-pdtab]{flex:0 0 auto!important;width:auto!important;min-width:84px;white-space:nowrap!important;' +
+    'padding:10px 18px!important;margin:0!important;border-radius:999px!important;scroll-snap-align:center;text-align:center;' +
+    'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)!important;box-shadow:none!important;' +
+    'transition:background .18s,color .18s,border-color .18s,transform .12s}' +
+    '[data-pdtabs]>[data-pdtab]::before,[data-pdtabs]>[data-pdtab]::after{display:none!important}' +
+    '[data-pdtabs]>[data-pdtab]:active{transform:scale(.95)}' +
+    '[data-pdtabs]>[data-pdtab][aria-selected=true],[data-pdtabs]>[data-pdtab].active,[data-pdtabs]>[data-pdtab].on,' +
+    '[data-pdtabs]>[data-pdtab].sel,[data-pdtabs]>[data-pdtab].selected,[data-pdtabs]>[data-pdtab][class*=active]{' +
+    'background:rgba(77,163,255,.18)!important;border-color:rgba(77,163,255,.6)!important;color:#4DA3FF!important}' +
+    '[data-pdhide]{display:none!important}';
+  var TAB_RE = /^(keys|numpad|text|touchpad|files|clipboard)$/i;
+
+  function ensureStyle() {
+    if (document.getElementById(STYLE_ID) || !document.documentElement) return;
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    st.textContent = CSS;
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function plainText(el) { return (el.textContent || '').replace(/[^A-Za-z]+/g, ''); }
+
+  function findTabBar() {
+    var best = null, bestCount = 0, all = document.querySelectorAll('div,nav,ul,header,section');
+    for (var i = 0; i < all.length; i++) {
+      var kids = all[i].children;
+      if (kids.length < 4 || kids.length > 12) continue;
+      var c = 0;
+      for (var j = 0; j < kids.length; j++) { if (TAB_RE.test(plainText(kids[j]))) c++; }
+      if (c >= 4 && c >= bestCount) { best = all[i]; bestCount = c; }   // later (deeper) match wins ties
+    }
+    return best;
+  }
+  function activeTab(bar) {
+    var k = bar.children;
+    for (var i = 0; i < k.length; i++) {
+      var cn = String(k[i].className && k[i].className.baseVal !== undefined ? k[i].className.baseVal : k[i].className);
+      if (k[i].getAttribute('aria-selected') === 'true' || /(^|[\s_-])(active|on|sel|selected|current)([\s_-]|$)/i.test(cn)) return k[i];
+    }
+    return null;
+  }
+  var tabObs = null, tabBarEl = null;
+  function centerActive() {
+    if (!tabBarEl) return;
+    var a = activeTab(tabBarEl);
+    if (a && a.scrollIntoView) { try { a.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
+  }
+  function applyTabs() {
+    var old = document.querySelector('[data-pdtabs]');
+    if (!cfg.tabs) {
+      if (old) {
+        old.removeAttribute('data-pdtabs');
+        var ts = old.querySelectorAll('[data-pdtab]');
+        for (var i = 0; i < ts.length; i++) ts[i].removeAttribute('data-pdtab');
+      }
+      return;
+    }
+    var bar = old || findTabBar();
+    if (!bar) return;
+    if (!bar.hasAttribute('data-pdtabs')) bar.setAttribute('data-pdtabs', '1');
+    for (var j = 0; j < bar.children.length; j++) { bar.children[j].setAttribute('data-pdtab', '1'); }
+    if (bar !== tabBarEl) {
+      tabBarEl = bar;
+      try { if (tabObs) tabObs.disconnect(); } catch (e) {}
+      try {
+        tabObs = new MutationObserver(function () { setTimeout(centerActive, 30); });
+        tabObs.observe(bar, { attributes: true, subtree: true, attributeFilter: ['class', 'aria-selected'] });
+      } catch (e) {}
+      setTimeout(centerActive, 60);
+    }
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-pdtab]') : null;
+    if (t) setTimeout(centerActive, 80);
+  }, true);
+
+  // Speed / Scroll sliders and the Left / Right buttons of the Touchpad tab
+  function words(el) { return (el.textContent || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim(); }
+  function unhideAll() {
+    var hs = document.querySelectorAll('[data-pdhide]');
+    for (var i = 0; i < hs.length; i++) hs[i].removeAttribute('data-pdhide');
+  }
+  function hideBoth(items, pattern) {
+    if (items.length === 0) return;
+    var p = items[0].parentElement;
+    if (items.length > 1 && p) {
+      var ok = true;
+      for (var i = 0; i < items.length; i++) { if (items[i].parentElement !== p) ok = false; }
+      if (ok && pattern.test(words(p))) { p.setAttribute('data-pdhide', '1'); return; }
+    }
+    for (var j = 0; j < items.length; j++) items[j].setAttribute('data-pdhide', '1');
+  }
+  function applyPadControls() {
+    if (!cfg.hidePad) { unhideAll(); return; }
+    var ranges = document.querySelectorAll('input[type=range]'), labelled = [], i;
+    for (i = 0; i < ranges.length; i++) {
+      var par = ranges[i].parentElement;
+      if (par && /^(speed|scroll)( (speed|scroll))*$/.test(words(par))) labelled.push(par);   // "Speed [slider]" wrapper
+    }
+    if (labelled.length) {
+      var gp = labelled[0].parentElement, same = !!gp;
+      for (i = 0; i < labelled.length; i++) { if (labelled[i].parentElement !== gp) same = false; }
+      if (same && gp && /^(speed|scroll)( (speed|scroll))*$/.test(words(gp))) gp.setAttribute('data-pdhide', '1');
+      else for (i = 0; i < labelled.length; i++) labelled[i].setAttribute('data-pdhide', '1');
+    }
+    var btns = [], els = document.querySelectorAll('button,[role=button],div,span'), n;
+    for (n = 0; n < els.length; n++) {
+      var e = els[n];
+      if (e.childElementCount > 1) continue;
+      var t = (e.textContent || '').trim().toLowerCase();
+      if ((t === 'left' || t === 'right') && !e.closest('[data-pdhide]')) {
+        var h = e;
+        while (h.parentElement && h.parentElement.childElementCount === 1 && h.parentElement !== document.body) h = h.parentElement;
+        if (btns.indexOf(h) < 0) btns.push(h);
+      }
+    }
+    hideBoth(btns, /^(left right|right left)$/);
+  }
+  function applyUi() {
+    try { ensureStyle(); applyTabs(); applyPadControls(); } catch (e) {}
+  }
+  applyUi();
+
+  // ==== ANCHOR:JS_SUGBAR ====
+  // Suggestion strip: a thin bar placed directly above the topmost row of the on-screen keyboard (Esc / F1..F12).
+  // It is only shown while there is something to suggest, so the page's own resize handle stays reachable.
+  var sugBar = null, sugCells = [], sugList = [], BAR_H = 36;
+  var KEYLBL = /^(esc|f\d{1,2}|del|ins|tab|caps|shift|ctrl|alt|win|enter|space|home|end|pgup|pgdn|[a-z0-9`\-=\[\]\\;',.\/])$/i;
+
+  function keyboardTop() {
+    var els = document.querySelectorAll(KEY_SEL), top = 1e9, letters = 0;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.childElementCount > 1) continue;
+      var t = (el.textContent || '').trim();
+      if (!KEYLBL.test(t) || !visible(el)) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) continue;
+      if (/^[a-z]$/i.test(t)) letters++;
+      if (r.top < top) top = r.top;
+    }
+    return letters >= 10 ? top : -1;
+  }
+  function buildBar() {
+    if (sugBar && document.documentElement.contains(sugBar)) return sugBar;
+    if (!document.body) return null;
+    sugBar = document.createElement('div');
+    sugBar.id = 'pd-sugbar';
+    sugBar.style.cssText = 'position:fixed;left:0;right:0;top:0;height:' + BAR_H + 'px;z-index:2147483000;display:none;' +
+      'box-sizing:border-box;padding:3px 6px;gap:6px;align-items:stretch;background:rgba(24,27,34,.97);' +
+      'border-top:1px solid rgba(255,255,255,.08);user-select:none;-webkit-user-select:none;touch-action:manipulation';
+    sugCells = [];
+    for (var i = 0; i < 4; i++) {
+      (function (idx) {
+        var c = document.createElement('div');
+        c.style.cssText = 'flex:1 1 0;min-width:0;border-radius:8px;background:#2A2F3A;color:#E8EBF2;font:15px/30px sans-serif;' +
+          'text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px';
+        var timer = 0, longDone = false;
+        c.addEventListener('pointerdown', function (e) {
+          e.preventDefault(); e.stopPropagation();           // never steal focus from the page
+          longDone = false;
+          c.style.background = '#4DA3FF';
+          timer = setTimeout(function () { timer = 0; longDone = true; call(function () { N.forgetAt(idx); }); }, 650);
+        });
+        var up = function (e) {
+          e.preventDefault(); e.stopPropagation();
+          c.style.background = '#2A2F3A';
+          if (timer) { clearTimeout(timer); timer = 0; if (!longDone) call(function () { N.pick(idx); }); }
+        };
+        c.addEventListener('pointerup', up);
+        c.addEventListener('pointercancel', function () { clearTimeout(timer); timer = 0; c.style.background = '#2A2F3A'; });
+        sugCells.push(c);
+        sugBar.appendChild(c);
+      })(i);
+    }
+    document.body.appendChild(sugBar);
+    return sugBar;
+  }
+  function renderBar() {
+    var show = cfg.sugg && sugList.length > 0;
+    var top = show ? keyboardTop() : -1;
+    if (!show || top < 0) { if (sugBar) sugBar.style.display = 'none'; return; }
+    var b = buildBar();
+    if (!b) return;
+    for (var i = 0; i < sugCells.length; i++) {
+      var w = sugList[i];
+      sugCells[i].textContent = w || '';
+      sugCells[i].style.visibility = w ? 'visible' : 'hidden';
+    }
+    b.style.top = Math.max(0, Math.round(top - BAR_H)) + 'px';
+    b.style.display = 'flex';
+  }
+  window.__pdSug = function (list) { sugList = list || []; renderBar(); };
+  setInterval(function () { if (sugList.length && cfg.sugg) renderBar(); }, 350);   // follow layout changes
+  window.addEventListener('resize', renderBar);
+  window.addEventListener('orientationchange', function () { setTimeout(renderBar, 200); });
+
+  // ==== ANCHOR:JS_SETTINGS ====
+  // Adds a "PhoneDeck app" section to the page's own Settings panel when its gear button is tapped.
+  // If the panel cannot be recognised, the app's own settings dialog opens instead.
+  var section = null, stamp = 0;
+  var CTRL_SEL = 'input[type=range],input[type=checkbox],input[type=radio],select';
+
+  function isGear(el) {
+    var t = (el.textContent || '').replace(/[\uFE0F\s]/g, '');
+    if (t === '\u2699' || t === '\u26ED') return true;
+    var cn = String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className);
+    return t.length <= 2 && /gear|cog|settings/i.test(cn + ' ' + (el.id || ''));
+  }
+  function mkSwitch(on) {
+    var s = document.createElement('div');
+    s.setAttribute('role', 'switch');
+    s.style.cssText = 'flex:0 0 auto;width:42px;height:24px;border-radius:12px;position:relative;transition:background .15s;cursor:pointer';
+    var k = document.createElement('div');
+    k.style.cssText = 'position:absolute;top:3px;width:18px;height:18px;border-radius:9px;background:#fff;transition:left .15s';
+    s.appendChild(k);
+    s.__set = function (v) { s.style.background = v ? '#4DA3FF' : '#4a5163'; k.style.left = v ? '21px' : '3px'; s.setAttribute('aria-checked', v ? 'true' : 'false'); };
+    s.__set(on);
+    return s;
+  }
+  var TOGGLES = [
+    ['sugg', 'sugg', 'Word suggestions'],
+    ['sugnext', 'sugnext', 'Suggest the next word'],
+    ['shift', 'shiftLabels', 'Shift changes the key letters'],
+    ['tabs', 'tabs', 'Pretty scrolling tabs'],
+    ['hidepad', 'hidePad', 'Touchpad: hide Speed/Scroll and Left/Right']
+  ];
+  var ACTIONS = [
+    ['clearwords', 'Clear learned words'],
+    ['reload', 'Reload page'],
+    ['find', 'Find PC on the network'],
+    ['testkeys', 'Test key detection'],
+    ['disconnect', 'Disconnect']
+  ];
+  var switches = {}, clearBtn = null;
+
+  function buildSection() {
+    var d = document.createElement('div');
+    d.id = 'pd-set';
+    d.style.cssText = 'margin:14px 0 6px;padding:12px;border-radius:14px;background:rgba(77,163,255,.08);' +
+      'border:1px solid rgba(77,163,255,.28);font:14px sans-serif;color:inherit;box-sizing:border-box;width:100%';
+    var h = document.createElement('div');
+    h.textContent = 'PhoneDeck app';
+    h.style.cssText = 'font-weight:700;margin-bottom:8px;color:#4DA3FF';
+    d.appendChild(h);
+    TOGGLES.forEach(function (t) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0';
+      var lb = document.createElement('div');
+      lb.textContent = t[2];
+      var sw = mkSwitch(!!cfg[t[1]]);
+      sw.addEventListener('click', function () {
+        var v = !cfg[t[1]];
+        cfg[t[1]] = v;
+        if (t[0] === 'shift') cfg.symbols = v;
+        sw.__set(v);
+        call(function () { N.setPref(t[0], v); });
+        applyCase(); applyUi(); renderBar();
+      });
+      switches[t[1]] = sw;
+      row.appendChild(lb); row.appendChild(sw);
+      d.appendChild(row);
+    });
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+    ACTIONS.forEach(function (a) {
+      var b = document.createElement('div');
+      b.textContent = a[1];
+      b.style.cssText = 'padding:9px 14px;border-radius:999px;background:rgba(255,255,255,.08);cursor:pointer';
+      if (a[0] === 'clearwords') clearBtn = b;
+      b.addEventListener('click', function () { call(function () { N.action(a[0]); }); });
+      wrap.appendChild(b);
+    });
+    d.appendChild(wrap);
+    return d;
+  }
+  function refreshSection() {
+    if (!section) return;
+    for (var k in switches) { if (switches[k] && switches[k].__set) switches[k].__set(!!cfg[k]); }
+    if (clearBtn) clearBtn.textContent = 'Clear learned words (' + (cfg.learned || 0) + ')';
+  }
+  function lca(list) {
+    var a = list[0].parentElement;
+    while (a) {
+      var all = true;
+      for (var i = 1; i < list.length; i++) { if (!a.contains(list[i])) { all = false; break; } }
+      if (all) return a;
+      a = a.parentElement;
+    }
+    return null;
+  }
+  // the panel = smallest element that contains every control that just became visible
+  function findPanel() {
+    var ctr = document.querySelectorAll(CTRL_SEL), fresh = [];
+    for (var i = 0; i < ctr.length; i++) {
+      if (ctr[i].closest('#pd-set')) continue;
+      if (visible(ctr[i]) && ctr[i].__pdv !== stamp) fresh.push(ctr[i]);
+    }
+    if (!fresh.length) return null;
+    var host = fresh.length > 1 ? lca(fresh) : (fresh[0].parentElement && fresh[0].parentElement.parentElement);
+    return host || null;
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target || !e.target.closest || e.target.closest('#pd-set,#pd-sugbar')) return;
+    var g = e.target.closest('button,[role=button],a,div,span');
+    if (!g || !isGear(g)) return;
+    var wasOpen = !!(section && document.documentElement.contains(section) && visible(section));
+    stamp++;
+    var ctr = document.querySelectorAll(CTRL_SEL);
+    for (var i = 0; i < ctr.length; i++) { if (visible(ctr[i])) ctr[i].__pdv = stamp; }   // what is visible before the page reacts
+    setTimeout(function () {
+      if (wasOpen) return;                                  // this tap closed the panel
+      var host = findPanel();
+      if (host) {
+        if (!section) section = buildSection();
+        host.appendChild(section);
+        refreshSection();
+      } else {
+        call(function () { N.openMenu(); });
+      }
+    }, 250);
+  }, true);
 
   // ==== ANCHOR:JS_SUGGEST ====
   var buf = '', modLatch = false, inserting = false;
@@ -226,6 +564,7 @@
   // taps on the page's on-screen keyboard
   document.addEventListener('pointerdown', function (e) {
     if (!e.isTrusted) return;
+    if (e.target && e.target.closest && e.target.closest('#pd-sugbar,#pd-set')) return;
     if (isEditable(e.target)) { clr(); return; }
     var k = keyInfo(e.target);
     if (!k) return;

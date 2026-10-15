@@ -98,6 +98,7 @@
                 android:background="@drawable/bg_edit" />
 
             <LinearLayout
+        android:id="@+id/mouseBtns"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:orientation="horizontal">

@@ -36,6 +36,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.util.Locale
@@ -84,12 +85,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
 
     // word suggestions
     private lateinit var words: WordStore
-    private lateinit var sugBar: LinearLayout
-    private lateinit var sugCells: LinearLayout
-    private lateinit var sugHint: TextView
-    private lateinit var sugToggle: TextView
-    private lateinit var sugStatus: TextView
-    private val sugViews = ArrayList<TextView>()
+    private var curList: List<String> = emptyList()
     private var typed = ""
     private var prevWord: String? = null
     private var fallbackWarned = false
@@ -97,7 +93,8 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     private fun suggestOn() = Prefs.of(this).getBoolean("sugg", true)
     private fun nextOn() = Prefs.of(this).getBoolean("sugnext", true)
     private fun shiftOn() = Prefs.of(this).getBoolean("shiftlabels", true)
-    private fun barBottom() = Prefs.of(this).getString("sugpos", "top") == "bottom"
+    private fun tabsOn() = Prefs.of(this).getBoolean("tabs", true)
+    private fun hidePadOn() = Prefs.of(this).getBoolean("hidepad", false)
 
     private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
@@ -135,9 +132,6 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         dlText = findViewById(R.id.dlText)
         dlOpen = findViewById(R.id.dlOpen)
         dlProg = findViewById(R.id.dlProg)
-
-        buildSuggestionBar()
-        placeBar()
 
         findViewById<Button>(R.id.retry).setOnClickListener {
             attempt = 0; loadFailed = false; fatalError = false
@@ -280,24 +274,16 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     override fun onState(state: ConnectionGuard.State, rttMs: Int) {
         when (state) {
             ConnectionGuard.State.ONLINE -> {
-                sugStatus.text = "● " + rttMs + "ms"
-                sugStatus.setTextColor(getColor(R.color.ok))
                 if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
             }
             ConnectionGuard.State.SLOW -> {
-                sugStatus.text = "● " + rttMs + "ms"
-                sugStatus.setTextColor(getColor(R.color.warn))
                 if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
             }
             ConnectionGuard.State.OFFLINE -> {
-                sugStatus.text = "● off"
-                sugStatus.setTextColor(getColor(R.color.bad))
                 bannerProblem = true
                 showBanner("⚠ Lost the PC - reconnecting…", R.color.warn)
             }
             ConnectionGuard.State.NO_NETWORK -> {
-                sugStatus.text = "● no net"
-                sugStatus.setTextColor(getColor(R.color.bad))
                 bannerProblem = true
                 showBanner("⚠ No network - join the PC's Wi-Fi / hotspot", R.color.bad)
             }
@@ -399,89 +385,9 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         }
     }
 
-    // ==== ANCHOR:DECK_SUGGESTION_BAR ====
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun barButton(label: String, widthDp: Int): TextView {
-        val tv = TextView(this)
-        tv.text = label
-        tv.gravity = Gravity.CENTER
-        tv.setTextColor(getColor(R.color.txt))
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        val lp = LinearLayout.LayoutParams(dp(widthDp), ViewGroup.LayoutParams.MATCH_PARENT)
-        lp.setMargins(dp(2), dp(2), dp(2), dp(2))
-        tv.layoutParams = lp
-        tv.setBackgroundResource(R.drawable.bg_key)
-        return tv
-    }
-
-    /** [gear] [Aa on/off] [4 suggestions] [connection dot + delay] */
-    private fun buildSuggestionBar() {
-        sugBar = findViewById(R.id.sugBar)
-        sugBar.removeAllViews()
-        sugViews.clear()
-
-        val gear = barButton("⚙", 40)
-        gear.setOnClickListener { showMenu() }
-        sugBar.addView(gear)
-
-        sugToggle = barButton("Aa", 44)
-        sugToggle.setOnClickListener { setSuggest(!suggestOn(), true) }
-        sugBar.addView(sugToggle)
-
-        sugCells = LinearLayout(this)
-        sugCells.orientation = LinearLayout.HORIZONTAL
-        sugCells.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        repeat(4) {
-            val tv = TextView(this)
-            tv.gravity = Gravity.CENTER
-            tv.maxLines = 1
-            tv.ellipsize = android.text.TextUtils.TruncateAt.END
-            tv.setTextColor(getColor(R.color.txt))
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            lp.setMargins(dp(2), dp(2), dp(2), dp(2))
-            tv.layoutParams = lp
-            tv.setOnClickListener { (tv.tag as? String)?.let { w -> applySuggestion(w) } }
-            tv.setOnLongClickListener {
-                (tv.tag as? String)?.let { w ->
-                    words.forget(w)
-                    refreshSuggestions()
-                    Toast.makeText(this, "Removed \"$w\"", Toast.LENGTH_SHORT).show()
-                }
-                true
-            }
-            sugViews.add(tv)
-            sugCells.addView(tv)
-        }
-        sugBar.addView(sugCells)
-
-        sugHint = TextView(this)
-        sugHint.text = "Word suggestions are off - tap Aa"
-        sugHint.gravity = Gravity.CENTER_VERTICAL
-        sugHint.setTextColor(getColor(R.color.dim))
-        sugHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        sugHint.setPadding(dp(8), 0, 0, 0)
-        sugHint.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        sugBar.addView(sugHint)
-
-        sugStatus = TextView(this)
-        sugStatus.text = "●"
-        sugStatus.gravity = Gravity.CENTER
-        sugStatus.setTextColor(getColor(R.color.dim))
-        sugStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-        sugStatus.minWidth = dp(64)
-        sugStatus.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        sugBar.addView(sugStatus)
-
-        applySuggestSetting()
-    }
-
-    private fun placeBar() {
-        column.removeView(sugBar)
-        if (barBottom()) column.addView(sugBar) else column.addView(sugBar, 0)
-    }
-
+    // ==== ANCHOR:DECK_SUGGESTIONS ====
+    // The suggestion strip itself lives inside the PC page (assets/pd.js, JS_SUGBAR) right above the keyboard's top key row;
+    // this side decides WHAT to suggest and pushes the list into the page.
     private fun setSuggest(on: Boolean, say: Boolean) {
         Prefs.of(this).edit().putBoolean("sugg", on).apply()
         applySuggestSetting()
@@ -489,31 +395,27 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     }
 
     private fun applySuggestSetting() {
-        val on = suggestOn()
-        sugCells.visibility = if (on) View.VISIBLE else View.GONE
-        sugHint.visibility = if (on) View.GONE else View.VISIBLE
-        sugToggle.setTextColor(getColor(if (on) R.color.acc else R.color.dim))
-        sugToggle.paintFlags =
-            if (on) sugToggle.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
-            else sugToggle.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-        if (!on) { typed = ""; prevWord = null }
+        if (!suggestOn()) { typed = ""; prevWord = null }
         refreshSuggestions()
+        pushConfig()
     }
 
     private fun refreshSuggestions() {
         val p = prevWord
-        val list: List<String> = when {
+        curList = when {
             !suggestOn() -> emptyList()
-            typed.isNotEmpty() -> words.suggest(typed, sugViews.size)
-            p != null && nextOn() -> words.suggestNext(p, sugViews.size)
+            typed.isNotEmpty() -> words.suggest(typed, 4)
+            p != null && nextOn() -> words.suggestNext(p, 4)
             else -> emptyList()
         }
-        for ((i, tv) in sugViews.withIndex()) {
-            val w = list.getOrNull(i)
-            tv.tag = w
-            tv.text = w ?: ""
-            if (w != null) tv.setBackgroundResource(R.drawable.bg_key) else tv.background = null
-        }
+        pushSug()
+    }
+
+    private fun pushSug() {
+        if (!::web.isInitialized) return
+        val arr = JSONArray()
+        for (w in curList) arr.put(w)
+        web.evaluateJavascript("window.__pdSug&&window.__pdSug(" + arr.toString() + ")", null)
     }
 
     /**
@@ -531,12 +433,47 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     }
 
     // ==== ANCHOR:DECK_MENU ====
+    // The same settings are shown inside the page's own Settings panel (pd.js JS_SETTINGS). This dialog is the fallback
+    // when that panel cannot be found.
+    private fun setPref(name: String, on: Boolean) {
+        val e = Prefs.of(this).edit()
+        when (name) {
+            "sugg" -> setSuggest(on, false)
+            "sugnext" -> { e.putBoolean("sugnext", on).apply(); refreshSuggestions(); pushConfig() }
+            "shift" -> { e.putBoolean("shiftlabels", on).apply(); pushConfig() }
+            "tabs" -> { e.putBoolean("tabs", on).apply(); pushConfig() }
+            "hidepad" -> { e.putBoolean("hidepad", on).apply(); pushConfig() }
+        }
+    }
+
+    private fun doAction(name: String) {
+        when (name) {
+            "reload" -> { attempt = 0; loadFailed = false; fatalError = false; web.loadUrl(url) }
+            "find" -> findPc()
+            "testkeys" -> testKeys()
+            "disconnect" -> finish()
+            "clearwords" -> AlertDialog.Builder(this)
+                .setTitle("Clear learned words?")
+                .setMessage("This removes the " + words.learnedCount() + " words you taught PhoneDeck. The built-in common words stay.")
+                .setPositiveButton("Clear") { _, _ ->
+                    words.clearLearned()
+                    prevWord = null
+                    refreshSuggestions()
+                    pushConfig()
+                    Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
     private fun showMenu() {
         val items = arrayOf(
             "Word suggestions: " + (if (suggestOn()) "ON" else "OFF"),
             "Next-word suggestions: " + (if (nextOn()) "ON" else "OFF"),
             "Shift changes the key letters: " + (if (shiftOn()) "ON" else "OFF"),
-            "Suggestion bar position: " + (if (barBottom()) "bottom" else "top"),
+            "Pretty scrolling tabs: " + (if (tabsOn()) "ON" else "OFF"),
+            "Touchpad tab - hide Speed/Scroll and Left/Right: " + (if (hidePadOn()) "HIDDEN" else "shown"),
             "Reload the PC page",
             "Find PC on the network…",
             "Test key detection",
@@ -547,45 +484,23 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             .setTitle("PhoneDeck")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> setSuggest(!suggestOn(), true)
-                    1 -> {
-                        Prefs.of(this).edit().putBoolean("sugnext", !nextOn()).apply()
-                        refreshSuggestions()
-                    }
-                    2 -> {
-                        Prefs.of(this).edit().putBoolean("shiftlabels", !shiftOn()).apply()
-                        pushConfig()
-                        Toast.makeText(this, "Applies to letters after the next Shift tap or page reload", Toast.LENGTH_SHORT).show()
-                    }
-                    3 -> {
-                        Prefs.of(this).edit().putString("sugpos", if (barBottom()) "top" else "bottom").apply()
-                        placeBar()
-                    }
-                    4 -> {
-                        attempt = 0; loadFailed = false; fatalError = false
-                        web.loadUrl(url)
-                    }
-                    5 -> findPc()
-                    6 -> testKeys()
-                    7 -> AlertDialog.Builder(this)
-                        .setTitle("Clear learned words?")
-                        .setMessage("This removes the " + words.learnedCount() + " words you taught PhoneDeck. The built-in common words stay.")
-                        .setPositiveButton("Clear") { _, _ ->
-                            words.clearLearned()
-                            prevWord = null
-                            refreshSuggestions()
-                            Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                    8 -> finish()
+                    0 -> setPref("sugg", !suggestOn())
+                    1 -> setPref("sugnext", !nextOn())
+                    2 -> setPref("shift", !shiftOn())
+                    3 -> setPref("tabs", !tabsOn())
+                    4 -> setPref("hidepad", !hidePadOn())
+                    5 -> doAction("reload")
+                    6 -> doAction("find")
+                    7 -> doAction("testkeys")
+                    8 -> doAction("clearwords")
+                    9 -> doAction("disconnect")
                 }
             }
             .setNegativeButton("Close", null)
             .show()
     }
 
-    private fun testKeys() {
+        private fun testKeys() {
         web.evaluateJavascript(
             "window.__pdProbe?window.__pdProbe():'The helper script is not loaded yet. Wait for the page to finish loading.'"
         ) { r ->
@@ -600,9 +515,14 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
 
     // ==== ANCHOR:DECK_BRIDGE ====
     private fun pushConfig() {
-        if (!::web.isInitialized) return
+        if (!::web.isInitialized || !::words.isInitialized) return
         val on = shiftOn()
-        web.evaluateJavascript("window.__pdConfig&&window.__pdConfig({shiftLabels:" + on + ",symbols:" + on + "})", null)
+        web.evaluateJavascript(
+            "window.__pdConfig&&window.__pdConfig({shiftLabels:" + on + ",symbols:" + on +
+                ",tabs:" + tabsOn() + ",hidePad:" + hidePadOn() +
+                ",sugg:" + suggestOn() + ",sugnext:" + nextOn() + ",learned:" + words.learnedCount() + "})",
+            null
+        )
     }
 
     /** Lets the page copy/paste with the phone clipboard even though plain http has no navigator.clipboard, then loads pd.js. */
@@ -634,6 +554,31 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         fun reset() {
             runOnUiThread { typed = ""; prevWord = null; refreshSuggestions() }
         }
+
+        /** Tap on a suggestion in the page's strip. */
+        @JavascriptInterface
+        fun pick(i: Int) { runOnUiThread { curList.getOrNull(i)?.let { applySuggestion(it) } } }
+
+        /** Long-press on a suggestion: forget that word. */
+        @JavascriptInterface
+        fun forgetAt(i: Int) {
+            runOnUiThread {
+                curList.getOrNull(i)?.let { w ->
+                    words.forget(w)
+                    refreshSuggestions()
+                    Toast.makeText(this@DeckActivity, "Removed \"" + w + "\"", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun setPref(name: String, on: Boolean) { runOnUiThread { this@DeckActivity.setPref(name, on) } }
+
+        @JavascriptInterface
+        fun action(name: String) { runOnUiThread { doAction(name) } }
+
+        @JavascriptInterface
+        fun openMenu() { runOnUiThread { showMenu() } }
 
         @JavascriptInterface
         fun hint(url: String, name: String) = downloader.hint(url, name)
@@ -693,7 +638,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         if (::web.isInitialized) web.onResume()
         hideSystemBars()
         if (::downloader.isInitialized) downloader.listener = this
-        if (::sugBar.isInitialized) applySuggestSetting()
+        if (::words.isInitialized) applySuggestSetting()
         if (::web.isInitialized) {
             startGuard()
             // away for a while: the page's own connection is probably dead, start it fresh

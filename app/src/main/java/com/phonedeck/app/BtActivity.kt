@@ -132,6 +132,13 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
         bindMouseButton(findViewById(R.id.btnL), 0)
         bindMouseButton(findViewById(R.id.btnM), 1)
         bindMouseButton(findViewById(R.id.btnR), 2)
+        applyMouseButtons()
+    }
+
+    /** Show or hide the L / M / R row under the touchpad (Settings gear). */
+    private fun applyMouseButtons() {
+        findViewById<View>(R.id.mouseBtns).visibility =
+            if (Prefs.of(this).getBoolean("mousebtns", true)) View.VISIBLE else View.GONE
     }
 
     private fun setStatus(t: String) {
@@ -534,6 +541,13 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
             refreshSuggestions()
         }
         box.addView(sug)
+
+        val mb = CheckBox(this)
+        mb.text = "Show L / M / R buttons under the touchpad"
+        mb.setTextColor(getColor(R.color.txt))
+        mb.isChecked = p.getBoolean("mousebtns", true)
+        mb.setOnCheckedChangeListener { _, c -> p.edit().putBoolean("mousebtns", c).apply(); applyMouseButtons() }
+        box.addView(mb)
 
         val nat = CheckBox(this)
         nat.text = "Natural scrolling"
