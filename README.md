@@ -26,6 +26,7 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - Keys: tap a modifier (Shift/Ctrl/Alt/Win) once, then the next key (one-shot). Touchpad: move, tap, 2-finger tap = right click,
   2-finger drag = scroll, tap then tap + hold = drag. Gear = speeds, tap window, hold time.
 - **Word suggestions:** a bar above the keys suggests words as you type letters/numbers. Finished words (space, Enter, punctuation) are saved, so your own words are suggested next time. Tap a suggestion to add it (it types the rest of the word + a space). Long-press a suggestion to forget it. It suggests only, it never auto-completes.
+- Letter keys show small letters normally and CAPITALS while Shift is on (symbols change too, e.g. 1 becomes !). Caps Lock lights up and flips the letters. If the PC's Caps Lock was already on when you connected, tap Caps once to match.
 - Limits: Android 9+, some brands block it, US keyboard keys only, no files / clipboard / preview in this mode.
 
 ## Word suggestions (both modes)
@@ -33,6 +34,8 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - **On/off:** tick/untick **Word suggestions** on the first screen, or in Bluetooth mode via the gear. When off, nothing is shown and nothing is saved (handy for passwords).
 - Wi-Fi mode: the app watches the PC page for typing (text boxes and on-screen keys with one-character labels) and types the suggestion back the same way.
   This is a best guess without seeing `phone.html`; send it to tune the key matching.
+
+- Downloads from the PC use the real file name (read from the response header, or the link's name/path), not `download.bin`.
 
 ## Use (Wi-Fi mode)
 - Open PhoneDeck, tap **Paste & Connect** (copy the `http://192.168.x.x:8080/?key=...` link first).

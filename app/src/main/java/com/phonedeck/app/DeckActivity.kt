@@ -12,7 +12,9 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -30,6 +32,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
+import java.net.URLDecoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Hosts the PC's PhoneDeck page in a full-screen WebView. */
 class DeckActivity : ComponentActivity() {
@@ -132,10 +138,15 @@ class DeckActivity : ComponentActivity() {
         // Files tab: PC -> phone downloads go to the normal Downloads folder.
         web.setDownloadListener { dlUrl, userAgent, contentDisposition, mime, _ ->
             try {
-                val name = URLUtil.guessFileName(dlUrl, contentDisposition, mime)
+                val name = resolveFileName(dlUrl, contentDisposition, mime)
+                val ext = name.substringAfterLast('.', "").lowercase()
+                val byExt = if (ext.isNotEmpty()) MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) else null
+                val realMime = if ((mime.isNullOrEmpty() || mime == "application/octet-stream") && byExt != null) byExt else mime
+                val cookie = CookieManager.getInstance().getCookie(dlUrl)
                 val req = DownloadManager.Request(Uri.parse(dlUrl))
-                    .setMimeType(mime)
+                    .setMimeType(realMime)
                     .addRequestHeader("User-Agent", userAgent)
+                    .apply { if (!cookie.isNullOrEmpty()) addRequestHeader("Cookie", cookie) }
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
                 getSystemService(DownloadManager::class.java).enqueue(req)
@@ -157,6 +168,52 @@ class DeckActivity : ComponentActivity() {
         })
 
         web.loadUrl(url)
+    }
+
+    // ------------------------------------------------------------------ download file names
+    private fun cleanName(n: String): String =
+        n.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]"), "_").trim().trim('.')
+
+    private fun fromDisposition(cd: String?): String? {
+        if (cd.isNullOrBlank()) return null
+        Regex("filename\\*\\s*=\\s*([^']*)'[^']*'([^;]+)", RegexOption.IGNORE_CASE).find(cd)?.let {
+            val cs = it.groupValues[1].ifBlank { "UTF-8" }
+            try { return cleanName(URLDecoder.decode(it.groupValues[2].trim().trim('"'), cs)) } catch (e: Exception) { }
+        }
+        Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(cd)?.let {
+            return cleanName(it.groupValues[1].trim())
+        }
+        return null
+    }
+
+    /** The PC's download link may not name the file (browser then shows "download.bin"), so look in every place a name could be. */
+    private fun resolveFileName(dlUrl: String, cd: String?, mime: String?): String {
+        fun withExt(n: String): String {
+            if (n.isEmpty() || n.contains('.')) return n
+            val ext = if (mime.isNullOrEmpty()) null else MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+            return if (ext != null && ext != "bin") "$n.$ext" else n
+        }
+        fromDisposition(cd)?.takeIf { it.isNotEmpty() }?.let { return it }
+
+        val u = Uri.parse(dlUrl)
+        val keys = listOf("filename", "fileName", "fname", "name", "file", "download", "dl", "f", "path", "p", "files", "paths", "items")
+        for (k in keys) {
+            val vals = try { u.getQueryParameters(k).filter { it.isNotBlank() && !it.matches(Regex("(?i)1|0|true|false|yes|no")) } } catch (e: Exception) { emptyList() }
+            if (vals.isEmpty()) continue
+            if (vals.size > 1) return "PhoneDeck-files.zip"
+            val n = cleanName(vals[0])
+            if (n.isNotEmpty()) return withExt(n)
+        }
+
+        val generic = setOf("download", "dl", "get", "file", "files", "f", "d", "zip", "fetch", "raw", "")
+        val seg = cleanName(Uri.decode(u.lastPathSegment ?: ""))
+        if (seg.lowercase() !in generic) return withExt(seg)
+
+        val guess = URLUtil.guessFileName(dlUrl, cd, mime)
+        if (!guess.lowercase().startsWith("download")) return guess
+        val ext = if (mime.isNullOrEmpty()) null else MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+        val stamp = SimpleDateFormat("yyMMdd-HHmmss", Locale.US).format(Date())
+        return "PhoneDeck-$stamp" + (if (ext != null) ".$ext" else "")
     }
 
     // ------------------------------------------------------------------ word suggestions

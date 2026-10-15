@@ -46,6 +46,17 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
     private val held = LinkedHashSet<Int>()
     private val modViews = ArrayList<Pair<View, Int>>()
 
+    // key captions that change with Shift / Caps Lock
+    private class SV(val tv: TextView, val normal: String, val shifted: String, val letter: Boolean)
+    private val shiftViews = ArrayList<SV>()
+    private var capsView: TextView? = null
+    private var capsOn = false
+    private val shiftedLabel = mapOf(
+        "`" to "~", "1" to "!", "2" to "@", "3" to "#", "4" to "$", "5" to "%", "6" to "^", "7" to "&",
+        "8" to "*", "9" to "(", "0" to ")", "-" to "_", "=" to "+", "[" to "{", "]" to "}", "\\" to "|",
+        ";" to ":", "'" to "\"", "," to "<", "." to ">", "/" to "?"
+    )
+
     // mouse state
     private var btnL = false
     private var btnM = false
@@ -145,6 +156,8 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
     private fun buildKeyboard() {
         kbBox.removeAllViews()
         modViews.clear()
+        shiftViews.clear()
+        capsView = null
         sugViews.clear()
 
         val r0 = listOf(K("Esc", 0x29, small = true)) +
@@ -195,6 +208,11 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
         lp.setMargins(dp(2), dp(2), dp(2), dp(2))
         tv.layoutParams = lp
         if (k.mod != 0) modViews.add(Pair(tv, k.mod))
+        if (k.usage == 0x39) capsView = tv
+        if (k.mod == 0) {
+            if (k.usage in 0x04..0x1D) shiftViews.add(SV(tv, k.label.lowercase(), k.label.uppercase(), true))
+            else shiftedLabel[k.label]?.let { shiftViews.add(SV(tv, k.label, it, false)) }
+        }
 
         tv.setOnTouchListener { v, ev ->
             when (ev.actionMasked) {
@@ -223,9 +241,17 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
 
     private fun refreshMods() {
         for ((v, bit) in modViews) v.isSelected = (latchedMods and bit) != 0
+        // Letters show small or CAPITAL, symbols show their shifted form, so you can see what will be typed
+        val shift = (latchedMods and 0x22) != 0
+        for (e in shiftViews) {
+            val up = if (e.letter) shift != capsOn else shift
+            e.tv.text = if (up) e.shifted else e.normal
+        }
+        capsView?.isSelected = capsOn
     }
 
     private fun keyDown(usage: Int) {
+        if (usage == 0x39) { capsOn = !capsOn; refreshMods() }
         trackKey(usage)
         held.add(usage)
         pushKeyboard()
@@ -308,6 +334,7 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
         when {
             c != null -> word.append(c)
             usage == 0x34 && word.isNotEmpty() && (latchedMods and 0x22) == 0 -> word.append('\'')
+            usage == 0x39 -> {}   // Caps Lock keeps the current word
             usage == 0x2A -> if (word.isNotEmpty()) word.setLength(word.length - 1)
             usage == 0x28 || usage in 0x2B..0x38 -> finishWord()   // enter, tab, space, punctuation
             else -> word.setLength(0)
