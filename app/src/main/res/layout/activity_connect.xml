@@ -118,6 +118,14 @@
                     android:textColor="@color/txt"
                     android:textSize="14sp" />
 
+                <CheckBox
+                    android:id="@+id/sugg"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Word suggestions (keyboard mode and link mode)"
+                    android:textColor="@color/txt"
+                    android:textSize="14sp" />
+
                 <TextView
                     android:id="@+id/msg"
                     android:layout_width="match_parent"

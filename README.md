@@ -28,6 +28,12 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - **Word suggestions:** a bar above the keys suggests words as you type letters/numbers. Finished words (space, Enter, punctuation) are saved, so your own words are suggested next time. Tap a suggestion to add it (it types the rest of the word + a space). Long-press a suggestion to forget it. It suggests only, it never auto-completes.
 - Limits: Android 9+, some brands block it, US keyboard keys only, no files / clipboard / preview in this mode.
 
+## Word suggestions (both modes)
+- Bar of 4 suggestions; tap one to add it (types the rest of the word + a space). Long-press to forget a word. It never auto-completes.
+- **On/off:** tick/untick **Word suggestions** on the first screen, or in Bluetooth mode via the gear. When off, nothing is shown and nothing is saved (handy for passwords).
+- Wi-Fi mode: the app watches the PC page for typing (text boxes and on-screen keys with one-character labels) and types the suggestion back the same way.
+  This is a best guess without seeing `phone.html`; send it to tune the key matching.
+
 ## Use (Wi-Fi mode)
 - Open PhoneDeck, tap **Paste & Connect** (copy the `http://192.168.x.x:8080/?key=...` link first).
 - The link is remembered; with "Connect automatically" on, opening the app goes straight in.

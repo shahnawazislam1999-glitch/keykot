@@ -28,7 +28,7 @@ class WordStore(ctx: Context) {
     }
 
     /** Up to [max] words starting with [prefix] (but not equal to it), best first. */
-    fun suggest(prefix: String, max: Int = 5): List<String> {
+    @Synchronized fun suggest(prefix: String, max: Int = 5): List<String> {
         if (prefix.isEmpty()) return emptyList()
         val p = prefix.lowercase()
         return counts.entries
@@ -39,7 +39,7 @@ class WordStore(ctx: Context) {
     }
 
     /** Call when a word is finished (space/enter/punctuation) or a suggestion is used. */
-    fun learn(word: String) {
+    @Synchronized fun learn(word: String) {
         val w = word.lowercase().trim('\'')
         if (w.length < 2 || w.length > 30 || w.none { it.isLetter() }) return
         counts[w] = (counts[w] ?: 0) + 2
@@ -47,7 +47,7 @@ class WordStore(ctx: Context) {
         save()
     }
 
-    fun forget(word: String) {
+    @Synchronized fun forget(word: String) {
         if (counts.remove(word.lowercase()) != null) save()
     }
 

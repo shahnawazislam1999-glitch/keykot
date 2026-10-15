@@ -5,10 +5,26 @@
     android:layout_height="match_parent"
     android:background="@color/bg">
 
-    <WebView
-        android:id="@+id/web"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/sugBar"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:background="@color/panel"
+            android:orientation="horizontal"
+            android:padding="2dp"
+            android:visibility="gone" />
+
+        <WebView
+            android:id="@+id/web"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/errorBox"

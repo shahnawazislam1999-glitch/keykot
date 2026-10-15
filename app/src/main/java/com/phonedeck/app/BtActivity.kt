@@ -63,6 +63,9 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
     private lateinit var words: WordStore
     private val word = StringBuilder()
     private val sugViews = ArrayList<TextView>()
+    private var sugRow: LinearLayout? = null
+
+    private fun suggestOn() = Prefs.of(this).getBoolean("sugg", true)
 
     private val permLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ -> startBluetooth() }
@@ -253,6 +256,8 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.8f)
         }
+        sugRow = row
+        row.visibility = if (suggestOn()) View.VISIBLE else View.GONE
         repeat(4) {
             val tv = TextView(this)
             tv.gravity = Gravity.CENTER
@@ -297,6 +302,7 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
 
     /** Follows what you type so the bar can suggest words. Ctrl/Alt/Win shortcuts and navigation keys just reset it. */
     private fun trackKey(usage: Int) {
+        if (!suggestOn()) { word.setLength(0); return }   // off: nothing is tracked or saved
         if ((latchedMods and 0x5D) != 0) { resetWord(); return }
         val c = usageChar(usage)
         when {
@@ -489,6 +495,18 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
         row("Scroll speed", 0.3f, 4f, 0.1f, "scroll", 1.2f) { "%.1f".format(it) }
         row("Next tap window", 100f, 1000f, 50f, "tapGap", 200f) { "${it.toInt()} ms" }
         row("Hold to drag (2nd tap)", 500f, 5000f, 100f, "dragHold", 3000f) { "%.1f s".format(it / 1000f) }
+
+        val sug = CheckBox(this)
+        sug.text = "Word suggestions"
+        sug.setTextColor(getColor(R.color.txt))
+        sug.isChecked = suggestOn()
+        sug.setOnCheckedChangeListener { _, c ->
+            p.edit().putBoolean("sugg", c).apply()
+            sugRow?.visibility = if (c) View.VISIBLE else View.GONE
+            word.setLength(0)
+            refreshSuggestions()
+        }
+        box.addView(sug)
 
         val nat = CheckBox(this)
         nat.text = "Natural scrolling"

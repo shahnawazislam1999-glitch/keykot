@@ -28,6 +28,9 @@ class ConnectActivity : ComponentActivity() {
         input.setText(p.getString("link", ""))
         auto.isChecked = p.getBoolean("auto", true)
         auto.setOnCheckedChangeListener { _, checked -> p.edit().putBoolean("auto", checked).apply() }
+        val sugg = findViewById<CheckBox>(R.id.sugg)
+        sugg.isChecked = p.getBoolean("sugg", true)
+        sugg.setOnCheckedChangeListener { _, checked -> p.edit().putBoolean("sugg", checked).apply() }
 
         findViewById<Button>(R.id.paste).setOnClickListener { pasteAndConnect() }
         findViewById<Button>(R.id.go).setOnClickListener { connect(input.text.toString()) }
