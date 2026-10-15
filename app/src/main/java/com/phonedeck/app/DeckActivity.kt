@@ -95,6 +95,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     private fun shiftOn() = Prefs.of(this).getBoolean("shiftlabels", true)
     private fun tabsOn() = Prefs.of(this).getBoolean("tabs", true)
     private fun hidePadOn() = Prefs.of(this).getBoolean("hidepad", false)
+    private fun hideLmrOn() = Prefs.of(this).getBoolean("hidelmr", false)
 
     private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
@@ -443,6 +444,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             "shift" -> { e.putBoolean("shiftlabels", on).apply(); pushConfig() }
             "tabs" -> { e.putBoolean("tabs", on).apply(); pushConfig() }
             "hidepad" -> { e.putBoolean("hidepad", on).apply(); pushConfig() }
+            "hidelmr" -> { e.putBoolean("hidelmr", on).apply(); pushConfig() }
         }
     }
 
@@ -474,6 +476,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             "Shift changes the key letters: " + (if (shiftOn()) "ON" else "OFF"),
             "Pretty scrolling tabs: " + (if (tabsOn()) "ON" else "OFF"),
             "Touchpad tab - hide Speed/Scroll and Left/Right: " + (if (hidePadOn()) "HIDDEN" else "shown"),
+            "Touchpad tab - hide L / M / R buttons: " + (if (hideLmrOn()) "HIDDEN" else "shown"),
             "Reload the PC page",
             "Find PC on the network…",
             "Test key detection",
@@ -489,11 +492,12 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
                     2 -> setPref("shift", !shiftOn())
                     3 -> setPref("tabs", !tabsOn())
                     4 -> setPref("hidepad", !hidePadOn())
-                    5 -> doAction("reload")
-                    6 -> doAction("find")
-                    7 -> doAction("testkeys")
-                    8 -> doAction("clearwords")
-                    9 -> doAction("disconnect")
+                    5 -> setPref("hidelmr", !hideLmrOn())
+                    6 -> doAction("reload")
+                    7 -> doAction("find")
+                    8 -> doAction("testkeys")
+                    9 -> doAction("clearwords")
+                    10 -> doAction("disconnect")
                 }
             }
             .setNegativeButton("Close", null)
@@ -519,7 +523,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         val on = shiftOn()
         web.evaluateJavascript(
             "window.__pdConfig&&window.__pdConfig({shiftLabels:" + on + ",symbols:" + on +
-                ",tabs:" + tabsOn() + ",hidePad:" + hidePadOn() +
+                ",tabs:" + tabsOn() + ",hidePad:" + hidePadOn() + ",hideLmr:" + hideLmrOn() +
                 ",sugg:" + suggestOn() + ",sugnext:" + nextOn() + ",learned:" + words.learnedCount() + "})",
             null
         )

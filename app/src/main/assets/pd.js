@@ -21,7 +21,7 @@
   function call(fn) { try { return fn(); } catch (e) { return undefined; } }
 
   // ==== ANCHOR:JS_CONFIG ====
-  var cfg = { shiftLabels: true, symbols: true, tabs: true, hidePad: false, sugg: true, sugnext: true, learned: 0 };
+  var cfg = { shiftLabels: true, symbols: true, tabs: true, hidePad: false, hideLmr: false, sugg: true, sugnext: true, learned: 0 };
   window.__pdConfig = function (o) {
     for (var k in o) { cfg[k] = o[k]; }
     applyCase();
@@ -185,7 +185,7 @@
     '[data-pdtabs]>[data-pdtab][aria-selected=true],[data-pdtabs]>[data-pdtab].active,[data-pdtabs]>[data-pdtab].on,' +
     '[data-pdtabs]>[data-pdtab].sel,[data-pdtabs]>[data-pdtab].selected,[data-pdtabs]>[data-pdtab][class*=active]{' +
     'background:rgba(77,163,255,.18)!important;border-color:rgba(77,163,255,.6)!important;color:#4DA3FF!important}' +
-    '[data-pdhide]{display:none!important}';
+    '[data-pdhide],[data-pdlmr]{display:none!important}';
   var TAB_RE = /^(keys|numpad|text|touchpad|files|clipboard)$/i;
 
   function ensureStyle() {
@@ -293,8 +293,24 @@
     }
     hideBoth(btns, /^(left right|right left)$/);
   }
+  // The L / M / R mouse-button row under the touchpad: hidden only when a container holds exactly those buttons,
+  // so the keyboard's own L, M and R keys are never touched.
+  var LMR_RE = /^(l m r|l r|left middle right)$/;
+  function applyLmr() {
+    var old = document.querySelectorAll('[data-pdlmr]'), i;
+    if (!cfg.hideLmr) { for (i = 0; i < old.length; i++) old[i].removeAttribute('data-pdlmr'); return; }
+    var els = document.querySelectorAll('div,section,nav,ul,span');
+    for (i = 0; i < els.length; i++) {
+      var el = els[i], k = el.childElementCount;
+      if (k < 2 || k > 3 || el.hasAttribute('data-pdlmr') || el.closest('#pd-set,#pd-sugbar')) continue;
+      if (!LMR_RE.test(words(el))) continue;
+      var h = el;   // climb out of single-child wrappers so no empty gap stays behind
+      while (h.parentElement && h.parentElement.childElementCount === 1 && h.parentElement !== document.body) h = h.parentElement;
+      h.setAttribute('data-pdlmr', '1');
+    }
+  }
   function applyUi() {
-    try { ensureStyle(); applyTabs(); applyPadControls(); } catch (e) {}
+    try { ensureStyle(); applyTabs(); applyPadControls(); applyLmr(); } catch (e) {}
   }
   applyUi();
 
@@ -400,7 +416,8 @@
     ['sugnext', 'sugnext', 'Suggest the next word'],
     ['shift', 'shiftLabels', 'Shift changes the key letters'],
     ['tabs', 'tabs', 'Pretty scrolling tabs'],
-    ['hidepad', 'hidePad', 'Touchpad: hide Speed/Scroll and Left/Right']
+    ['hidepad', 'hidePad', 'Touchpad: hide Speed/Scroll and Left/Right'],
+    ['hidelmr', 'hideLmr', 'Touchpad: hide L / M / R buttons']
   ];
   var ACTIONS = [
     ['clearwords', 'Clear learned words'],
