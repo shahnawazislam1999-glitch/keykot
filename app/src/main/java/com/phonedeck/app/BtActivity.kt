@@ -555,6 +555,7 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
 
     override fun onPause() {
         releaseAll()
+        words.flush()
         super.onPause()
     }
 

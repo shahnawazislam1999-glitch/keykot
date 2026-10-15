@@ -1,5 +1,6 @@
 package com.phonedeck.app
 
+import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
@@ -35,6 +36,9 @@ class ConnectActivity : ComponentActivity() {
         findViewById<Button>(R.id.paste).setOnClickListener { pasteAndConnect() }
         findViewById<Button>(R.id.go).setOnClickListener { connect(input.text.toString()) }
         findViewById<Button>(R.id.bt).setOnClickListener { startBt() }
+        findViewById<Button>(R.id.recent).setOnClickListener { showRecent() }
+        findViewById<Button>(R.id.find).setOnClickListener { findPc() }
+        findViewById<Button>(R.id.test).setOnClickListener { testLink() }
         findViewById<Button>(R.id.forget).setOnClickListener {
             p.edit().remove("link").apply()
             input.setText("")
@@ -89,9 +93,46 @@ class ConnectActivity : ComponentActivity() {
             return
         }
         Prefs.of(this).edit().putString("link", url).putString("mode", "wifi").apply()
+        LinkHistory.add(this, url)
         input.setText(url)
         say("Connecting…", true)
         startActivity(Intent(this, DeckActivity::class.java).putExtra("url", url))
+    }
+
+    // ==== ANCHOR:CONNECT_TOOLS ====
+    private fun showRecent() {
+        val list = LinkHistory.list(this)
+        if (list.isEmpty()) { say("No recent links yet.", null); return }
+        AlertDialog.Builder(this)
+            .setTitle("Recent links")
+            .setItems(list.map { LinkUtil.pretty(it) }.toTypedArray()) { _, i ->
+                input.setText(list[i])
+                connect(list[i])
+            }
+            .setNeutralButton("Clear") { _, _ -> LinkHistory.clear(this) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    /** Looks for the PC again (its IP may have changed) and puts the new link in the box. */
+    private fun findPc() {
+        val base = LinkUtil.parse(input.text.toString())
+        val port = if (base != null) LinkUtil.portOf(base) else 8080
+        Discovery.showFindDialog(this, port) { ip ->
+            val nu = if (base != null) LinkUtil.withHost(base, ip) else "http://" + ip + ":" + port + "/"
+            input.setText(nu)
+            say("Found the PC at " + ip + ". Tap Connect.", true)
+        }
+    }
+
+    private fun testLink() {
+        val u = LinkUtil.parse(input.text.toString())
+        if (u == null) { say(getString(R.string.bad_link), false); return }
+        say("Testing…", null)
+        Thread {
+            val r = Probe.check(u)
+            runOnUiThread { say(r.text, r.ok) }
+        }.start()
     }
 
     private fun startBt() {

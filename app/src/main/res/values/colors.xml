@@ -9,4 +9,6 @@
     <color name="acc">#FF4DA3FF</color>
     <color name="bad">#FFFF4D4F</color>
     <color name="ok">#FF2ECC71</color>
+    <color name="warn">#FFB8860B</color>
+    <color name="okbg">#FF1E7B4A</color>
 </resources>

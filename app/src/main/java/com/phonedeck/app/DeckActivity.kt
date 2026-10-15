@@ -1,12 +1,16 @@
 package com.phonedeck.app
 
 import android.annotation.SuppressLint
-import android.app.DownloadManager
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
@@ -15,7 +19,7 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
-import android.webkit.URLUtil
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -26,40 +30,88 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
-import java.net.URLDecoder
-import java.text.SimpleDateFormat
-import java.util.Date
+import org.json.JSONTokener
 import java.util.Locale
 
-/** Hosts the PC's PhoneDeck page in a full-screen WebView. */
-class DeckActivity : ComponentActivity() {
+/**
+ * Link mode: hosts the PC's PhoneDeck page in a full-screen WebView and adds, on top of it:
+ *   - a word-suggestion bar (with on/off toggle) that follows what you type on the page's keyboard,
+ *   - small/CAPITAL letters that follow Shift (done by assets/pd.js inside the page),
+ *   - real-name downloads into the Downloads folder (Downloader),
+ *   - a connection guard: network binding, live latency, automatic reconnect, "Find PC" (ConnectionGuard, Discovery).
+ * Search for "ANCHOR:" to jump to a section.
+ */
+class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.Listener {
     private lateinit var web: WebView
+    private lateinit var column: LinearLayout
     private lateinit var errorBox: View
     private lateinit var errorText: TextView
+    private lateinit var errorInfo: TextView
+    private lateinit var banner: TextView
+    private lateinit var dlBar: View
+    private lateinit var dlText: TextView
+    private lateinit var dlOpen: TextView
+    private lateinit var dlProg: ProgressBar
 
     private var url = ""
     private var host: String? = null
     private var lastBack = 0L
     private var fileCb: ValueCallback<Array<Uri>>? = null
+    private val ui = Handler(Looper.getMainLooper())
+    private val pdJs: String by lazy { assets.open("pd.js").bufferedReader().use { it.readText() } }
+
+    // connection
+    private var guard: ConnectionGuard? = null
+    private var loadFailed = false
+    private var fatalError = false
+    private var attempt = 0
+    private var bannerProblem = false
+    private var pausedAt = 0L
+
+    // downloads
+    private lateinit var downloader: Downloader
+    private var curDl = -1
+    private var doneUri: Uri? = null
+    private var doneName = ""
+    private val hideDl = Runnable { if (::dlBar.isInitialized) dlBar.visibility = View.GONE }
 
     // word suggestions
     private lateinit var words: WordStore
     private lateinit var sugBar: LinearLayout
+    private lateinit var sugCells: LinearLayout
+    private lateinit var sugHint: TextView
+    private lateinit var sugToggle: TextView
+    private lateinit var sugStatus: TextView
     private val sugViews = ArrayList<TextView>()
     private var typed = ""
+    private var prevWord: String? = null
+    private var fallbackWarned = false
+
     private fun suggestOn() = Prefs.of(this).getBoolean("sugg", true)
+    private fun nextOn() = Prefs.of(this).getBoolean("sugnext", true)
+    private fun shiftOn() = Prefs.of(this).getBoolean("shiftlabels", true)
+    private fun barBottom() = Prefs.of(this).getString("sugpos", "top") == "bottom"
 
     private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
         fileCb = null
     }
 
+    private val retryRun = Runnable {
+        if (loadFailed && !fatalError && ::web.isInitialized) {
+            attempt++
+            web.loadUrl(url)
+        }
+    }
+
+    // ==== ANCHOR:DECK_ONCREATE ====
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,13 +123,36 @@ class DeckActivity : ComponentActivity() {
         host = Uri.parse(url).host
 
         words = WordStore(this)
-        buildSuggestionBar()
+        downloader = Downloader.get(this)
 
+        column = findViewById(R.id.column)
         web = findViewById(R.id.web)
         errorBox = findViewById(R.id.errorBox)
         errorText = findViewById(R.id.errorText)
-        findViewById<Button>(R.id.retry).setOnClickListener { errorBox.visibility = View.GONE; web.loadUrl(url) }
+        errorInfo = findViewById(R.id.errorInfo)
+        banner = findViewById(R.id.banner)
+        dlBar = findViewById(R.id.dlBar)
+        dlText = findViewById(R.id.dlText)
+        dlOpen = findViewById(R.id.dlOpen)
+        dlProg = findViewById(R.id.dlProg)
+
+        buildSuggestionBar()
+        placeBar()
+
+        findViewById<Button>(R.id.retry).setOnClickListener {
+            attempt = 0; loadFailed = false; fatalError = false
+            guard?.pokeNow()
+            ui.removeCallbacks(retryRun)
+            web.loadUrl(url)
+        }
+        findViewById<Button>(R.id.find).setOnClickListener { findPc() }
         findViewById<Button>(R.id.change).setOnClickListener { finish() }
+        dlOpen.setOnClickListener { doneUri?.let { openFile(it, doneName) } }
+        findViewById<View>(R.id.dlClose).setOnClickListener {
+            if (curDl >= 0) { downloader.cancel(curDl); Toast.makeText(this, "Download cancelled", Toast.LENGTH_SHORT).show() }
+            ui.removeCallbacks(hideDl)
+            dlBar.visibility = View.GONE
+        }
 
         web.setBackgroundColor(getColor(R.color.bg))
         web.overScrollMode = View.OVER_SCROLL_NEVER
@@ -92,6 +167,8 @@ class DeckActivity : ComponentActivity() {
             setSupportZoom(false)
             builtInZoomControls = false
             displayZoomControls = false
+            setSupportMultipleWindows(false)
+            textZoom = 100                       // the page's keyboard must not grow with the phone's font size
             allowFileAccess = false
             allowContentAccess = true
         }
@@ -101,23 +178,44 @@ class DeckActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                 request.url.host != host      // never leave the PC page
 
-            override fun onPageStarted(view: WebView, u: String?, favicon: android.graphics.Bitmap?) {
-                errorBox.visibility = View.GONE
+            override fun onPageStarted(view: WebView, u: String?, favicon: Bitmap?) {
+                loadFailed = false
                 injectBridge(view)
             }
 
-            override fun onPageFinished(view: WebView, u: String?) = injectBridge(view)
+            override fun onPageFinished(view: WebView, u: String?) {
+                injectBridge(view)
+                pushConfig()
+                if (!loadFailed) {
+                    ui.removeCallbacks(retryRun)
+                    attempt = 0
+                    errorBox.visibility = View.GONE
+                }
+            }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) {
-                    showError("Can't reach $host.\n\nCheck that PhoneDeck is running on the PC and that both are on the same Wi-Fi or hotspot.")
-                }
+                if (!request.isForMainFrame) return
+                if ((error.description?.toString() ?: "").contains("ERR_ABORTED")) return
+                loadFailed = true
+                fatalError = false
+                showError(
+                    "Can't reach $host.\n\nCheck that PhoneDeck is running on the PC and that both are on the same Wi-Fi or hotspot.",
+                    true
+                )
             }
 
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
                 if (request.isForMainFrame && response.statusCode == 403) {
-                    showError("The PC refused the link (wrong or old key).\n\nTap Change link and paste the current one.")
+                    loadFailed = true
+                    fatalError = true
+                    showError("The PC refused the link (wrong or old key).\n\nTap Change link and paste the current one.", false)
                 }
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                Toast.makeText(this@DeckActivity, "The page crashed - reloading", Toast.LENGTH_SHORT).show()
+                recreate()
+                return true
             }
         }
 
@@ -135,24 +233,12 @@ class DeckActivity : ComponentActivity() {
             }
         }
 
-        // Files tab: PC -> phone downloads go to the normal Downloads folder.
+        // Files tab: PC -> phone downloads go to the Downloads folder under their real name.
         web.setDownloadListener { dlUrl, userAgent, contentDisposition, mime, _ ->
-            try {
-                val name = resolveFileName(dlUrl, contentDisposition, mime)
-                val ext = name.substringAfterLast('.', "").lowercase()
-                val byExt = if (ext.isNotEmpty()) MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) else null
-                val realMime = if ((mime.isNullOrEmpty() || mime == "application/octet-stream") && byExt != null) byExt else mime
-                val cookie = CookieManager.getInstance().getCookie(dlUrl)
-                val req = DownloadManager.Request(Uri.parse(dlUrl))
-                    .setMimeType(realMime)
-                    .addRequestHeader("User-Agent", userAgent)
-                    .apply { if (!cookie.isNullOrEmpty()) addRequestHeader("Cookie", cookie) }
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-                getSystemService(DownloadManager::class.java).enqueue(req)
-                Toast.makeText(this, "Downloading $name", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+            if (dlUrl.startsWith("blob:")) {
+                web.evaluateJavascript("window.__pdFetchBlob&&window.__pdFetchBlob(" + JSONObject.quote(dlUrl) + ")", null)
+            } else {
+                downloader.enqueue(dlUrl, userAgent, CookieManager.getInstance().getCookie(dlUrl), url, contentDisposition, mime)
             }
         }
 
@@ -167,60 +253,185 @@ class DeckActivity : ComponentActivity() {
             }
         })
 
+        LinkHistory.add(this, url)
         web.loadUrl(url)
     }
 
-    // ------------------------------------------------------------------ download file names
-    private fun cleanName(n: String): String =
-        n.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]"), "_").trim().trim('.')
-
-    private fun fromDisposition(cd: String?): String? {
-        if (cd.isNullOrBlank()) return null
-        Regex("filename\\*\\s*=\\s*([^']*)'[^']*'([^;]+)", RegexOption.IGNORE_CASE).find(cd)?.let {
-            val cs = it.groupValues[1].ifBlank { "UTF-8" }
-            try { return cleanName(URLDecoder.decode(it.groupValues[2].trim().trim('"'), cs)) } catch (e: Exception) { }
-        }
-        Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(cd)?.let {
-            return cleanName(it.groupValues[1].trim())
-        }
-        return null
+    // ==== ANCHOR:DECK_CONNECTION ====
+    private fun startGuard() {
+        guard?.stop()
+        guard = ConnectionGuard(this, url, this).also { it.start() }
     }
 
-    /** The PC's download link may not name the file (browser then shows "download.bin"), so look in every place a name could be. */
-    private fun resolveFileName(dlUrl: String, cd: String?, mime: String?): String {
-        fun withExt(n: String): String {
-            if (n.isEmpty() || n.contains('.')) return n
-            val ext = if (mime.isNullOrEmpty()) null else MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
-            return if (ext != null && ext != "bin") "$n.$ext" else n
-        }
-        fromDisposition(cd)?.takeIf { it.isNotEmpty() }?.let { return it }
-
-        val u = Uri.parse(dlUrl)
-        val keys = listOf("filename", "fileName", "fname", "name", "file", "download", "dl", "f", "path", "p", "files", "paths", "items")
-        for (k in keys) {
-            val vals = try { u.getQueryParameters(k).filter { it.isNotBlank() && !it.matches(Regex("(?i)1|0|true|false|yes|no")) } } catch (e: Exception) { emptyList() }
-            if (vals.isEmpty()) continue
-            if (vals.size > 1) return "PhoneDeck-files.zip"
-            val n = cleanName(vals[0])
-            if (n.isNotEmpty()) return withExt(n)
-        }
-
-        val generic = setOf("download", "dl", "get", "file", "files", "f", "d", "zip", "fetch", "raw", "")
-        val seg = cleanName(Uri.decode(u.lastPathSegment ?: ""))
-        if (seg.lowercase() !in generic) return withExt(seg)
-
-        val guess = URLUtil.guessFileName(dlUrl, cd, mime)
-        if (!guess.lowercase().startsWith("download")) return guess
-        val ext = if (mime.isNullOrEmpty()) null else MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
-        val stamp = SimpleDateFormat("yyMMdd-HHmmss", Locale.US).format(Date())
-        return "PhoneDeck-$stamp" + (if (ext != null) ".$ext" else "")
+    private fun showError(text: String, auto: Boolean) {
+        errorText.text = text
+        errorInfo.text = if (auto) "Retrying automatically…  (attempt " + (attempt + 1) + ")" else ""
+        errorBox.visibility = View.VISIBLE
+        ui.removeCallbacks(retryRun)
+        if (auto) ui.postDelayed(retryRun, minOf(1500L + attempt * 700L, 5000L))
     }
 
-    // ------------------------------------------------------------------ word suggestions
+    private fun showBanner(text: String, colorRes: Int) {
+        banner.text = text
+        banner.setBackgroundColor(getColor(colorRes))
+        banner.visibility = View.VISIBLE
+    }
+
+    override fun onState(state: ConnectionGuard.State, rttMs: Int) {
+        when (state) {
+            ConnectionGuard.State.ONLINE -> {
+                sugStatus.text = "● " + rttMs + "ms"
+                sugStatus.setTextColor(getColor(R.color.ok))
+                if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
+            }
+            ConnectionGuard.State.SLOW -> {
+                sugStatus.text = "● " + rttMs + "ms"
+                sugStatus.setTextColor(getColor(R.color.warn))
+                if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
+            }
+            ConnectionGuard.State.OFFLINE -> {
+                sugStatus.text = "● off"
+                sugStatus.setTextColor(getColor(R.color.bad))
+                bannerProblem = true
+                showBanner("⚠ Lost the PC - reconnecting…", R.color.warn)
+            }
+            ConnectionGuard.State.NO_NETWORK -> {
+                sugStatus.text = "● no net"
+                sugStatus.setTextColor(getColor(R.color.bad))
+                bannerProblem = true
+                showBanner("⚠ No network - join the PC's Wi-Fi / hotspot", R.color.bad)
+            }
+        }
+    }
+
+    override fun onRecovered(outageMs: Long) {
+        bannerProblem = false
+        showBanner("✔ PC is back", R.color.okbg)
+        ui.postDelayed({ if (!bannerProblem) banner.visibility = View.GONE }, 1800)
+        if (loadFailed && !fatalError) {
+            attempt = 0
+            ui.removeCallbacks(retryRun)
+            web.loadUrl(url)
+        } else if (outageMs > 6000) {
+            web.loadUrl(url)                      // the page's own connection is probably dead: start fresh
+        }
+    }
+
+    private fun findPc() {
+        Discovery.showFindDialog(this, LinkUtil.portOf(url)) { ip ->
+            val nu = LinkUtil.withHost(url, ip)
+            url = nu
+            host = ip
+            Prefs.of(this).edit().putString("link", nu).apply()
+            LinkHistory.add(this, nu)
+            attempt = 0; loadFailed = false; fatalError = false
+            errorBox.visibility = View.GONE
+            startGuard()
+            web.loadUrl(nu)
+        }
+    }
+
+    // ==== ANCHOR:DECK_DOWNLOADS ====
+    private fun fmtSize(b: Long): String = when {
+        b >= (1L shl 30) -> String.format(Locale.US, "%.2f GB", b / 1073741824.0)
+        b >= (1L shl 20) -> String.format(Locale.US, "%.1f MB", b / 1048576.0)
+        b >= (1L shl 10) -> String.format(Locale.US, "%d KB", b shr 10)
+        else -> "$b B"
+    }
+
+    override fun onDownload(s: Downloader.State) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            ui.removeCallbacks(hideDl)
+            dlBar.visibility = View.VISIBLE
+            when (s.phase) {
+                Downloader.Phase.RUNNING -> {
+                    curDl = s.id
+                    dlOpen.visibility = View.GONE
+                    val m = s.msg
+                    val info = if (m != null) m
+                    else if (s.total > 0) fmtSize(s.done) + " / " + fmtSize(s.total) + "  " + (s.done * 100 / s.total) + "%"
+                    else fmtSize(s.done)
+                    dlText.text = "⬇ " + s.name + "   " + info
+                    if (s.total > 0) {
+                        dlProg.isIndeterminate = false
+                        dlProg.progress = (s.done * 1000 / s.total).toInt()
+                    } else {
+                        dlProg.isIndeterminate = true
+                    }
+                }
+                Downloader.Phase.DONE -> {
+                    curDl = -1
+                    doneUri = s.uri
+                    doneName = s.name
+                    dlProg.isIndeterminate = false
+                    dlProg.progress = 1000
+                    dlText.text = "✔ Saved to Downloads: " + s.name
+                    dlOpen.visibility = View.VISIBLE
+                    Toast.makeText(this, "Saved: " + s.name, Toast.LENGTH_SHORT).show()
+                    ui.postDelayed(hideDl, 10000)
+                }
+                Downloader.Phase.FAILED -> {
+                    curDl = -1
+                    dlOpen.visibility = View.GONE
+                    dlProg.isIndeterminate = false
+                    dlProg.progress = 0
+                    dlText.text = "✖ " + s.name + ": " + (s.msg ?: "failed")
+                    ui.postDelayed(hideDl, 10000)
+                }
+                Downloader.Phase.CANCELED -> {
+                    curDl = -1
+                    dlBar.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun openFile(uri: Uri, name: String) {
+        val mime = Names.mimeFor(name)
+        val i = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mime)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(i)
+        } catch (e: Exception) {
+            Toast.makeText(this, "No app can open this file. Find it in the Files app > Downloads.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // ==== ANCHOR:DECK_SUGGESTION_BAR ====
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    private fun barButton(label: String, widthDp: Int): TextView {
+        val tv = TextView(this)
+        tv.text = label
+        tv.gravity = Gravity.CENTER
+        tv.setTextColor(getColor(R.color.txt))
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        val lp = LinearLayout.LayoutParams(dp(widthDp), ViewGroup.LayoutParams.MATCH_PARENT)
+        lp.setMargins(dp(2), dp(2), dp(2), dp(2))
+        tv.layoutParams = lp
+        tv.setBackgroundResource(R.drawable.bg_key)
+        return tv
+    }
+
+    /** [gear] [Aa on/off] [4 suggestions] [connection dot + delay] */
     private fun buildSuggestionBar() {
         sugBar = findViewById(R.id.sugBar)
+        sugBar.removeAllViews()
+        sugViews.clear()
+
+        val gear = barButton("⚙", 40)
+        gear.setOnClickListener { showMenu() }
+        sugBar.addView(gear)
+
+        sugToggle = barButton("Aa", 44)
+        sugToggle.setOnClickListener { setSuggest(!suggestOn(), true) }
+        sugBar.addView(sugToggle)
+
+        sugCells = LinearLayout(this)
+        sugCells.orientation = LinearLayout.HORIZONTAL
+        sugCells.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
         repeat(4) {
             val tv = TextView(this)
             tv.gravity = Gravity.CENTER
@@ -231,30 +442,72 @@ class DeckActivity : ComponentActivity() {
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             lp.setMargins(dp(2), dp(2), dp(2), dp(2))
             tv.layoutParams = lp
-            tv.setOnClickListener { (tv.tag as? String)?.let { applySuggestion(it) } }
+            tv.setOnClickListener { (tv.tag as? String)?.let { w -> applySuggestion(w) } }
             tv.setOnLongClickListener {
-                (tv.tag as? String)?.let {
-                    words.forget(it)
+                (tv.tag as? String)?.let { w ->
+                    words.forget(w)
                     refreshSuggestions()
-                    Toast.makeText(this, "Removed \"$it\"", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Removed \"$w\"", Toast.LENGTH_SHORT).show()
                 }
                 true
             }
             sugViews.add(tv)
-            sugBar.addView(tv)
+            sugCells.addView(tv)
         }
+        sugBar.addView(sugCells)
+
+        sugHint = TextView(this)
+        sugHint.text = "Word suggestions are off - tap Aa"
+        sugHint.gravity = Gravity.CENTER_VERTICAL
+        sugHint.setTextColor(getColor(R.color.dim))
+        sugHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        sugHint.setPadding(dp(8), 0, 0, 0)
+        sugHint.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+        sugBar.addView(sugHint)
+
+        sugStatus = TextView(this)
+        sugStatus.text = "●"
+        sugStatus.gravity = Gravity.CENTER
+        sugStatus.setTextColor(getColor(R.color.dim))
+        sugStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        sugStatus.minWidth = dp(64)
+        sugStatus.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        sugBar.addView(sugStatus)
+
         applySuggestSetting()
+    }
+
+    private fun placeBar() {
+        column.removeView(sugBar)
+        if (barBottom()) column.addView(sugBar) else column.addView(sugBar, 0)
+    }
+
+    private fun setSuggest(on: Boolean, say: Boolean) {
+        Prefs.of(this).edit().putBoolean("sugg", on).apply()
+        applySuggestSetting()
+        if (say) Toast.makeText(this, if (on) "Word suggestions ON" else "Word suggestions OFF", Toast.LENGTH_SHORT).show()
     }
 
     private fun applySuggestSetting() {
         val on = suggestOn()
-        sugBar.visibility = if (on) View.VISIBLE else View.GONE
-        if (!on) typed = ""
+        sugCells.visibility = if (on) View.VISIBLE else View.GONE
+        sugHint.visibility = if (on) View.GONE else View.VISIBLE
+        sugToggle.setTextColor(getColor(if (on) R.color.acc else R.color.dim))
+        sugToggle.paintFlags =
+            if (on) sugToggle.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            else sugToggle.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        if (!on) { typed = ""; prevWord = null }
         refreshSuggestions()
     }
 
     private fun refreshSuggestions() {
-        val list = if (typed.isEmpty() || !suggestOn()) emptyList() else words.suggest(typed, sugViews.size)
+        val p = prevWord
+        val list: List<String> = when {
+            !suggestOn() -> emptyList()
+            typed.isNotEmpty() -> words.suggest(typed, sugViews.size)
+            p != null && nextOn() -> words.suggestNext(p, sugViews.size)
+            else -> emptyList()
+        }
         for ((i, tv) in sugViews.withIndex()) {
             val w = list.getOrNull(i)
             tv.tag = w
@@ -263,35 +516,103 @@ class DeckActivity : ComponentActivity() {
         }
     }
 
-    /** Tap on a suggestion: the page script types the rest of the word plus a space. */
+    /**
+     * Tap on a suggestion: the page script types the rest of the word plus a space, so the half-typed word
+     * becomes the whole word. The word is counted up so it rises in the list next time.
+     */
     private fun applySuggestion(w: String) {
         if (!w.startsWith(typed)) return
         val suffix = w.substring(typed.length) + " "
         web.evaluateJavascript("window.__pdInsert&&window.__pdInsert(" + JSONObject.quote(suffix) + ")", null)
-        words.learn(w)
+        words.learn(w, prevWord, 3)
+        prevWord = w
         typed = ""
         refreshSuggestions()
     }
 
-    private fun showError(text: String) = runOnUiThread {
-        errorText.text = text
-        errorBox.visibility = View.VISIBLE
+    // ==== ANCHOR:DECK_MENU ====
+    private fun showMenu() {
+        val items = arrayOf(
+            "Word suggestions: " + (if (suggestOn()) "ON" else "OFF"),
+            "Next-word suggestions: " + (if (nextOn()) "ON" else "OFF"),
+            "Shift changes the key letters: " + (if (shiftOn()) "ON" else "OFF"),
+            "Suggestion bar position: " + (if (barBottom()) "bottom" else "top"),
+            "Reload the PC page",
+            "Find PC on the network…",
+            "Test key detection",
+            "Learned words: " + words.learnedCount() + "  (tap to clear)",
+            "Change link / disconnect"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("PhoneDeck")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> setSuggest(!suggestOn(), true)
+                    1 -> {
+                        Prefs.of(this).edit().putBoolean("sugnext", !nextOn()).apply()
+                        refreshSuggestions()
+                    }
+                    2 -> {
+                        Prefs.of(this).edit().putBoolean("shiftlabels", !shiftOn()).apply()
+                        pushConfig()
+                        Toast.makeText(this, "Applies to letters after the next Shift tap or page reload", Toast.LENGTH_SHORT).show()
+                    }
+                    3 -> {
+                        Prefs.of(this).edit().putString("sugpos", if (barBottom()) "top" else "bottom").apply()
+                        placeBar()
+                    }
+                    4 -> {
+                        attempt = 0; loadFailed = false; fatalError = false
+                        web.loadUrl(url)
+                    }
+                    5 -> findPc()
+                    6 -> testKeys()
+                    7 -> AlertDialog.Builder(this)
+                        .setTitle("Clear learned words?")
+                        .setMessage("This removes the " + words.learnedCount() + " words you taught PhoneDeck. The built-in common words stay.")
+                        .setPositiveButton("Clear") { _, _ ->
+                            words.clearLearned()
+                            prevWord = null
+                            refreshSuggestions()
+                            Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                    8 -> finish()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
-    /** Lets the page copy/paste with the phone clipboard even though plain http has no navigator.clipboard. */
+    private fun testKeys() {
+        web.evaluateJavascript(
+            "window.__pdProbe?window.__pdProbe():'The helper script is not loaded yet. Wait for the page to finish loading.'"
+        ) { r ->
+            val txt = try { JSONTokener(r ?: "null").nextValue()?.toString() ?: "No answer" } catch (e: Exception) { r ?: "No answer" }
+            AlertDialog.Builder(this)
+                .setTitle("Key detection")
+                .setMessage(txt)
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
+
+    // ==== ANCHOR:DECK_BRIDGE ====
+    private fun pushConfig() {
+        if (!::web.isInitialized) return
+        val on = shiftOn()
+        web.evaluateJavascript("window.__pdConfig&&window.__pdConfig({shiftLabels:" + on + ",symbols:" + on + "})", null)
+    }
+
+    /** Lets the page copy/paste with the phone clipboard even though plain http has no navigator.clipboard, then loads pd.js. */
     private fun injectBridge(view: WebView) {
-        view.evaluateJavascript(
-            "(function(){try{if(!window.PDNative||navigator.clipboard)return;" +
-                "Object.defineProperty(navigator,'clipboard',{configurable:true,value:{" +
-                "readText:function(){return Promise.resolve(PDNative.readClip());}," +
-                "writeText:function(t){PDNative.writeClip(String(t));return Promise.resolve();}}});}catch(e){}})();",
-            null
-        )
-        view.evaluateJavascript(SUGGEST_JS, null)
+        view.evaluateJavascript(CLIP_JS, null)
+        view.evaluateJavascript(pdJs, null)
     }
 
     inner class Bridge {
-        /** Page script reports the word being typed. */
+        /** Page script reports the word being typed (empty = a word just ended). */
         @JavascriptInterface
         fun word(w: String) {
             if (!suggestOn()) return
@@ -301,7 +622,49 @@ class DeckActivity : ComponentActivity() {
         /** Page script reports a finished word. */
         @JavascriptInterface
         fun learn(w: String) {
-            if (suggestOn()) words.learn(w)
+            if (!suggestOn()) return
+            runOnUiThread {
+                words.learn(w, prevWord)
+                prevWord = w.lowercase()
+            }
+        }
+
+        /** Sentence ended, mouse used, shortcut pressed ... forget the context. */
+        @JavascriptInterface
+        fun reset() {
+            runOnUiThread { typed = ""; prevWord = null; refreshSuggestions() }
+        }
+
+        @JavascriptInterface
+        fun hint(url: String, name: String) = downloader.hint(url, name)
+
+        @JavascriptInterface
+        fun blobBegin(id: String, name: String, mime: String, total: Double) =
+            downloader.blobBegin(id, name, mime, total.toLong())
+
+        @JavascriptInterface
+        fun blobChunk(id: String, b64: String): Boolean = downloader.blobChunk(id, b64)
+
+        @JavascriptInterface
+        fun blobEnd(id: String) = downloader.blobEnd(id)
+
+        @JavascriptInterface
+        fun blobFail(id: String, why: String) = downloader.blobFail(id, why)
+
+        @JavascriptInterface
+        fun report(kind: String, info: String) {
+            runOnUiThread {
+                if (kind == "fallback" && !fallbackWarned) {
+                    fallbackWarned = true
+                    Toast.makeText(
+                        this@DeckActivity,
+                        "Some on-screen keys were not found, key events were used instead. Menu > Test key detection shows what is missing.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else if (kind == "blobfail") {
+                    Toast.makeText(this@DeckActivity, "The page could not hand over the file", Toast.LENGTH_LONG).show()
+                }
+            }
         }
 
         @JavascriptInterface
@@ -319,6 +682,7 @@ class DeckActivity : ComponentActivity() {
         }
     }
 
+    // ==== ANCHOR:DECK_LIFECYCLE ====
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
@@ -328,15 +692,30 @@ class DeckActivity : ComponentActivity() {
         super.onResume()
         if (::web.isInitialized) web.onResume()
         hideSystemBars()
+        if (::downloader.isInitialized) downloader.listener = this
         if (::sugBar.isInitialized) applySuggestSetting()
+        if (::web.isInitialized) {
+            startGuard()
+            // away for a while: the page's own connection is probably dead, start it fresh
+            if (pausedAt != 0L && SystemClock.elapsedRealtime() - pausedAt > 45_000 && !loadFailed) web.loadUrl(url)
+        }
+        pausedAt = 0L
     }
 
     override fun onPause() {
+        pausedAt = SystemClock.elapsedRealtime()
+        if (::words.isInitialized) words.flush()
+        guard?.stop()
+        guard = null
         if (::web.isInitialized) web.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
+        ui.removeCallbacksAndMessages(null)
+        guard?.stop()
+        guard = null
+        if (::downloader.isInitialized && downloader.listener === this) downloader.listener = null
         fileCb?.onReceiveValue(null)
         fileCb = null
         if (::web.isInitialized) {
@@ -347,112 +726,8 @@ class DeckActivity : ComponentActivity() {
     }
 }
 
-/**
- * Injected into the PC page. It cannot see the page's source, so it watches what is typed in two ways:
- * physical/soft keyboard in text boxes, and taps on on-screen keys (buttons whose label is one character,
- * Space, Backspace, Enter). It reports the current word to the app, and types a chosen suggestion back by
- * inserting into the focused text box, or by tapping the matching on-screen keys.
- */
-private const val SUGGEST_JS = """
-(function(){
- if(window.__pdSug||!window.PDNative)return; window.__pdSug=true;
- var buf='', modLatch=false;
- function rep(){try{PDNative.word(buf);}catch(e){}}
- function reset(){buf='';rep();}
- function fin(){if(buf){try{PDNative.learn(buf);}catch(e){}} reset();}
- function key(k,mod){
-  if(mod||modLatch){modLatch=false;reset();return;}
-  if(k.length===1){
-   if(/[a-z0-9]/i.test(k)){buf+=k.toLowerCase();rep();}
-   else if(k==="'"&&buf){buf+=k;rep();}
-   else fin();
-  } else if(k==='Backspace'){buf=buf.slice(0,-1);rep();}
-  else if(k==='Enter'||k==='Tab'){fin();}
-  else reset();
- }
- function editable(t){return t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable);}
- document.addEventListener('keydown',function(e){
-  if(!e.isTrusted||editable(e.target)||e.key==='Unidentified'||e.key==='Process')return;
-  if(e.key==='Shift'||e.key==='CapsLock'||e.key==='Control'||e.key==='Alt'||e.key==='Meta')return;
-  key(e.key,e.ctrlKey||e.altKey||e.metaKey);
- },true);
- document.addEventListener('input',function(e){
-  if(!e.isTrusted||!editable(e.target))return;
-  var t=e.inputType||'';
-  if(t==='insertText'||t==='insertCompositionText'||t==='insertFromPaste'){
-   if(t==='insertFromPaste'){reset();return;}
-   var d=e.data||''; for(var i=0;i<d.length;i++)key(d.charAt(i),false);
-  } else if(t==='deleteContentBackward'){key('Backspace',false);}
-  else if(t==='insertLineBreak'||t==='insertParagraph'){key('Enter',false);}
-  else reset();
- },true);
- function label(el){
-  for(var i=0;i<4&&el&&el!==document.body;i++,el=el.parentElement){
-   var d=el.getAttribute&&(el.getAttribute('data-key')||el.getAttribute('data-k'));
-   var t=(d||el.textContent||'').trim();
-   if(t.length===1)return t;
-   if(/^(backspace|bksp|\u232B|\u2190)$/i.test(t))return 'Backspace';
-   if(/^(enter|return|\u21B5|\u23CE)$/i.test(t))return 'Enter';
-   if(/^(space|\u2423)$/i.test(t))return ' ';
-   if(/^tab$/i.test(t))return 'Tab';
-   if(/^(shift|caps|caps lock|capslock|\u21E7)$/i.test(t))return 'Shift';
-   if(/^(ctrl|control|alt|win|windows|meta|cmd|super)$/i.test(t))return 'Mod';
-  }
-  return null;
- }
- document.addEventListener('pointerdown',function(e){
-  if(!e.isTrusted||editable(e.target))return;
-  var k=label(e.target); if(!k)return;
-  if(k==='Shift')return;
-  if(k==='Mod'){reset();modLatch=true;return;}
-  key(k,false);
- },true);
- function findKey(ch){
-  var els=document.querySelectorAll('button,[role=button],[data-key],[data-k],.key,[class*=key],[class*=Key]');
-  var best=null;
-  for(var i=0;i<els.length;i++){
-   var el=els[i]; if(!el.offsetWidth)continue;
-   var t=((el.getAttribute('data-key')||el.getAttribute('data-k')||el.textContent)||'').trim();
-   if(ch===' '){
-    if(/^(space|\u2423)$/i.test(t)||(t===''&&/space/i.test((el.className||'')+' '+(el.id||''))))return el;
-   } else if(t.length===1&&t.toLowerCase()===ch)best=el;
-  }
-  return best;
- }
- function press(el){
-  var r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
-  var base={bubbles:true,cancelable:true,clientX:x,clientY:y,view:window};
-  var pi={bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'touch',isPrimary:true};
-  var prevented=false;
-  try{if(!el.dispatchEvent(new PointerEvent('pointerdown',pi)))prevented=true;}catch(e){}
-  try{
-   var t=new Touch({identifier:1,target:el,clientX:x,clientY:y});
-   var ti={bubbles:true,cancelable:true,touches:[t],targetTouches:[t],changedTouches:[t]};
-   if(!el.dispatchEvent(new TouchEvent('touchstart',ti)))prevented=true;
-  }catch(e){}
-  try{el.dispatchEvent(new PointerEvent('pointerup',pi));}catch(e){}
-  try{
-   var t2=new Touch({identifier:1,target:el,clientX:x,clientY:y});
-   var te={bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t2]};
-   if(!el.dispatchEvent(new TouchEvent('touchend',te)))prevented=true;
-  }catch(e){}
-  if(!prevented){
-   el.dispatchEvent(new MouseEvent('mousedown',base));
-   el.dispatchEvent(new MouseEvent('mouseup',base));
-   el.dispatchEvent(new MouseEvent('click',base));
-  }
- }
- window.__pdInsert=function(text){
-  var a=document.activeElement;
-  if(editable(a)){
-   try{if(document.execCommand('insertText',false,text)){reset();return;}}catch(e){}
-  }
-  var i=0;
-  (function next(){
-   if(i>=text.length){reset();return;}
-   var el=findKey(text.charAt(i++)); if(el)press(el);
-   setTimeout(next,25);
-  })();
- };
-})();
-"""
+private const val CLIP_JS =
+    "(function(){try{if(!window.PDNative||navigator.clipboard)return;" +
+        "Object.defineProperty(navigator,'clipboard',{configurable:true,value:{" +
+        "readText:function(){return Promise.resolve(PDNative.readClip());}," +
+        "writeText:function(t){PDNative.writeClip(String(t));return Promise.resolve();}}});}catch(e){}})();"

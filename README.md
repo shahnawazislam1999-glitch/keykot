@@ -29,13 +29,26 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - Letter keys show small letters normally and CAPITALS while Shift is on (symbols change too, e.g. 1 becomes !). Caps Lock lights up and flips the letters. If the PC's Caps Lock was already on when you connected, tap Caps once to match.
 - Limits: Android 9+, some brands block it, US keyboard keys only, no files / clipboard / preview in this mode.
 
-## Word suggestions (both modes)
-- Bar of 4 suggestions; tap one to add it (types the rest of the word + a space). Long-press to forget a word. It never auto-completes.
-- **On/off:** tick/untick **Word suggestions** on the first screen, or in Bluetooth mode via the gear. When off, nothing is shown and nothing is saved (handy for passwords).
-- Wi-Fi mode: the app watches the PC page for typing (text boxes and on-screen keys with one-character labels) and types the suggestion back the same way.
-  This is a best guess without seeing `phone.html`; send it to tune the key matching.
+## Link mode (v2.0)
+**Word suggestions** (bar at the top, can be moved to the bottom in the gear menu)
+- Bar: gear | **Aa** on/off | 4 suggestions | connection dot + delay. Tap a suggestion: the rest of the word + a space is typed, so your half-typed word is replaced by the whole word. Long-press to forget a word.
+- **Aa** switches suggestions on/off at any time (off = nothing shown, nothing saved).
+- New words you finish typing are saved in the app's local storage and suggested next time; word pairs are saved too, so after a space it suggests the next word. Gear > Learned words clears them.
+- Works for the page's on-screen keys, a text box (Android keyboard) and a physical keyboard. Password boxes are ignored.
 
-- Downloads from the PC use the real file name (read from the response header, or the link's name/path), not `download.bin`.
+**Shift** - letters on the page's keyboard show small normally and CAPITAL after Shift (symbols too: 1 becomes !). Tap Shift = next key only, double-tap Shift = Caps Lock, hold Shift while typing = capitals until you let go. Gear > "Shift changes the key letters" turns it off.
+
+**Downloads** - done by the app itself into Downloads, always with the real file name (zip, apk, folders become Folder.zip). A bar shows progress, Open and cancel. Works for normal links, `<a download>` links and blob: downloads made by the page. If the name already exists, Android adds (1).
+
+**Strong connection**
+- Binds to the network the PC is really on (a Wi-Fi without internet is no longer dropped for mobile data) and holds a low-latency Wi-Fi lock.
+- Checks the PC every few seconds: dot shows delay (green/orange/red), banner appears when the PC is lost, the page reloads itself when the PC is back.
+- If the first load fails it retries by itself with growing waits. Reloads when you return after 45 s away. Recovers if the page process crashes.
+- **Find PC** (connect screen or error screen / gear menu) scans the network when the PC's IP changed and rewrites the link. **Recent** keeps the last 8 links. **Test link** says exactly why it cannot connect.
+- Gear > **Test key detection** shows which keys the helper script found on the PC page.
+
+## Code map (search for `ANCHOR:`)
+`assets/pd.js` JS_SHIFT_SYNC, JS_SUGGEST, JS_INSERT, JS_DOWNLOADS, JS_PROBE | `DeckActivity.kt` DECK_CONNECTION, DECK_DOWNLOADS, DECK_SUGGESTION_BAR, DECK_MENU, DECK_BRIDGE | `Downloader.kt` DL_HTTP, DL_BLOB, DL_MEDIASTORE | `Names.kt` NAMES_CONFIG | `ConnectionGuard.kt` GUARD_BIND, GUARD_LOOP | `WordStore.kt` WORDSTORE_SUGGEST, WORDSTORE_LEARN | `Discovery.kt` DISCOVERY_SCAN
 
 ## Use (Wi-Fi mode)
 - Open PhoneDeck, tap **Paste & Connect** (copy the `http://192.168.x.x:8080/?key=...` link first).
