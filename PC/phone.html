@@ -66,7 +66,8 @@ nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
 #prevScroll #prevEdit.on{background:var(--acc);color:#fff}
 #prevScroll #pvSearch{color:#7cc4ff}
 #prevScroll #pvChrome svg{stroke:none}
-#prevScroll #pvMin{grid-row:1 / span 2}
+#prevScroll #pvMin,#prevScroll #pvFold{grid-row:1 / span 2}
+#prevScroll #pvFold{color:#6fd3d3}
 #prevScroll #pvGet{color:#8be0a4}
 #prevScroll #pvLinks{color:#f2b66d}
 #prevScroll #pvMin{color:#c3a6ff}
@@ -75,17 +76,17 @@ nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
 #pvCopy{position:absolute;right:122px;bottom:6px;z-index:5;height:26px;padding:0 12px;border:0;border-radius:13px;background:var(--acc);color:#fff;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.45);display:none}
 #prevBar.ro #pvCopy{display:block}
 #pvMin.on{background:var(--acc);color:#fff}
-#linksPop{position:absolute;right:0;top:calc(100% + 4px);z-index:60;width:min(340px,92vw);max-height:62vh;overflow:auto;background:var(--panel);border:1px solid var(--key2);
+#linksPop,#foldersPop{position:absolute;right:0;top:calc(100% + 4px);z-index:60;width:min(340px,92vw);max-height:62vh;overflow:auto;background:var(--panel);border:1px solid var(--key2);
   border-radius:14px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:6px}
-#linksPop[hidden]{display:none}
-#linksPop .lr{display:flex;gap:6px}
-#linksPop .lk{flex:1;min-width:0;text-align:left;border:0;border-radius:10px;background:var(--key);color:var(--txt);padding:0 12px;height:40px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#linksPop .lk small{color:var(--dim);margin-left:8px;font-size:11px}
-#linksPop .ld{flex:none;width:40px;height:40px;border:0;border-radius:10px;background:var(--key);color:var(--dim);font-size:14px}
-#linksPop .la{display:flex;gap:6px;margin-top:2px}
-#linksPop .la input{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid var(--key2);background:var(--bg,#111);color:var(--txt);padding:0 10px;font-size:14px}
-#linksPop .la button{flex:none;height:40px;border:0;border-radius:10px;background:var(--acc);color:#fff;padding:0 14px;font-weight:600}
-#linksPop .lh{color:var(--dim);font-size:11px;padding:0 2px}
+#linksPop[hidden],#foldersPop[hidden]{display:none}
+#linksPop .lr,#foldersPop .lr{display:flex;gap:6px}
+#linksPop .lk,#foldersPop .lk{flex:1;min-width:0;text-align:left;border:0;border-radius:10px;background:var(--key);color:var(--txt);padding:0 12px;height:40px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#linksPop .lk small,#foldersPop .lk small{color:var(--dim);margin-left:8px;font-size:11px}
+#linksPop .ld,#foldersPop .ld{flex:none;width:40px;height:40px;border:0;border-radius:10px;background:var(--key);color:var(--dim);font-size:14px}
+#linksPop .la,#foldersPop .la{display:flex;gap:6px;margin-top:2px}
+#linksPop .la input,#foldersPop .la input{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid var(--key2);background:var(--bg,#111);color:var(--txt);padding:0 10px;font-size:14px}
+#linksPop .la button,#foldersPop .la button{flex:none;height:40px;border:0;border-radius:10px;background:var(--acc);color:#fff;padding:0 14px;font-weight:600}
+#linksPop .lh,#foldersPop .lh{color:var(--dim);font-size:11px;padding:0 2px}
 .pl{position:relative;white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;height:18px;line-height:18px;
   font:12.5px/18px ui-monospace,Consolas,Menlo,monospace;tab-size:4;touch-action:pan-x pan-y;color:var(--txt)}
 .pl::-webkit-scrollbar{display:none}
@@ -125,8 +126,8 @@ body.nohandles .hbar{display:none}
 #tStage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none;--tg:3px}
 .tblk{position:absolute;container-type:size;display:flex;flex-direction:column;gap:var(--tg)}
 .tblk.ttop{flex-direction:row}
-.tblk.ttop .mpad{flex:6 1 0;min-width:0;font-size:clamp(10px,28cqh,13px)}
-.tkgrid{flex:2 1 0;min-width:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:var(--tg)}
+.tblk.tpadb .mpad{flex:1 1 0;min-width:0;font-size:clamp(10px,12cqh,13px)}
+.tkgrid{flex:1 1 0;min-width:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:var(--tg)}
 .tkgrid .tk{flex:none;font-size:clamp(10px,13cqh,20px)}
 .trow{display:flex;gap:var(--tg);flex:1 1 0;min-height:0}
 .tsp{flex:var(--w) 1 0px;min-width:0;pointer-events:none}
@@ -266,6 +267,7 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
   </header>
 
   <div id="prevBar"><div id="prev"></div><div id="prevScroll">
+    <button id="pvFold" title="Quick folders on the PC (Desktop, Downloads, Documents...)"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></button>
     <button id="pvGet" title="Get text: copies what you selected on the PC and shows it in the preview"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 11h9M4 16h6"/><path d="M17 12v8m0 0l-3-3m3 3l3-3"/></svg></button>
     <button id="pvLinks" title="Web links (open in Chrome on the PC)"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button>
     <button id="pvMin" title="Minimize all windows (Win+M)"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="10" rx="2" opacity=".55"/><path d="M5 19h14" stroke-width="3"/></svg></button>
@@ -273,7 +275,7 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
     <button id="pvChrome" title="Open Chrome on the PC (Win+R, chrome, Enter)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#4d9bff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L3.34 7A10 10 0 0 1 12 2z" fill="#ef5b4f"/><path d="M20.66 7A10 10 0 0 1 12 22l4.33-7.5A5 5 0 0 0 12 7z" fill="#ffd04a"/><path d="M12 22A10 10 0 0 1 3.34 7l4.33 7.5A5 5 0 0 0 16.33 14.5L12 22z" fill="#3cc47c"/><circle cx="12" cy="12" r="3.6" fill="#fff"/><circle cx="12" cy="12" r="2.6" fill="#4d9bff"/></svg></button>
     <button id="prevEdit" title="Edit with phone keyboard"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/></svg></button>
     <button id="prevClear" title="Clear preview"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </div><button id="pvCopy" title="Copy the selected part (or everything if nothing is selected)">Copy</button><div id="linksPop" hidden></div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
+  </div><button id="pvCopy" title="Copy the selected part (or everything if nothing is selected)">Copy</button><div id="linksPop" hidden></div><div id="foldersPop" hidden></div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
 <textarea id="prevIn" autocomplete="off" autocapitalize="off" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
 
   <main>
@@ -442,11 +444,17 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 };
-const TGEO = () => ({ tTop: { x: 0.03, y: 0.02, w: 0.94, h: 0.3 }, tMain: { x: 0.03, y: 0.35, w: 0.94, h: 0.62 }, tL: { x: 0.02, y: 0.35, w: 0.46, h: 0.62 }, tR: { x: 0.52, y: 0.35, w: 0.46, h: 0.62 } });
+const TGEO = () => ({ tKeys: { x: 0.03, y: 0.02, w: 0.23, h: 0.3 }, tPad: { x: 0.28, y: 0.02, w: 0.69, h: 0.3 }, tMain: { x: 0.03, y: 0.35, w: 0.94, h: 0.62 }, tL: { x: 0.02, y: 0.35, w: 0.46, h: 0.62 }, tR: { x: 0.52, y: 0.35, w: 0.46, h: 0.62 } });
 const DEFAULTS = { pen: false, penSpeed: 1.5, penSmooth: 0.5, penHover: true, gest: true, tInd: true, tGap: 3, tSplit: false, ...TGEO(), sens: 1.6, scroll: 1.2, haptics: true, theme: 'dark', kbSize: 100, natural: true,
                    buttons: true, mbtns: true, method: 'paste', restoreClip: true, autoPaste: false, live: false, preview: true, numpad: true, mouse: true, handles: true, tabs: true, dragHold: 3000, tapGap: 200, prevH: 54, sideW: 0.36 };
 const S = { ...DEFAULTS, ...store.get('pd.settings', {}) };
-if (!S.tv2) { const g = TGEO(); S.tTop = g.tTop; S.tMain = g.tMain; S.tL = g.tL; S.tR = g.tR; S.tv2 = true; store.set('pd.settings', S); }   // one-time: make room for the Tab / Ctrl / mouse strip
+if (!S.tv2) { const g = TGEO(); S.tKeys = g.tKeys; S.tPad = g.tPad; S.tMain = g.tMain; S.tL = g.tL; S.tR = g.tR; S.tv2 = true; S.tv3 = true; store.set('pd.settings', S); }
+if (!S.tv3) {                                               // one-time: the keys and the mouse pad are now separate blocks; keep where the old strip was
+  const T = S.tTop && typeof S.tTop === 'object' ? S.tTop : TGEO().tKeys;
+  S.tKeys = { x: T.x, y: T.y, w: +(T.w * 0.25).toFixed(4), h: T.h };
+  S.tPad = { x: +(T.x + T.w * 0.26).toFixed(4), y: T.y, w: +(T.w * 0.74).toFixed(4), h: T.h };
+  delete S.tTop; S.tv3 = true; store.set('pd.settings', S);
+}   // one-time: make room for the Tab / Ctrl / mouse strip
 
 let curTab = 'kb';
 function updateSideVis() {                                  // numpad / mouse column: Keys tab only, full height
@@ -884,7 +892,7 @@ function tkEl(k) {
 function tGeo(key) {                                       // always returns a usable rectangle (fractions of the stage)
   const def = TGEO()[key], g = S[key] && typeof S[key] === 'object' ? S[key] : {};
   const n = (v, d) => (Number.isFinite(+v) ? +v : d);
-  const w = clampN(n(g.w, def.w), 0.14, 1), h = clampN(n(g.h, def.h), key === 'tTop' ? 0.08 : 0.22, 1);
+  const w = clampN(n(g.w, def.w), 0.14, 1), h = clampN(n(g.h, def.h), (key === 'tKeys' || key === 'tPad') ? 0.08 : 0.22, 1);
   S[key] = { w, h, x: clampN(n(g.x, def.x), 0, 1 - w), y: clampN(n(g.y, def.y), 0, 1 - h) };
   return S[key];
 }
@@ -893,19 +901,22 @@ function tPlace(blk) {
   blk.style.left = g.x * 100 + '%'; blk.style.top = g.y * 100 + '%';
   blk.style.width = g.w * 100 + '%'; blk.style.height = g.h * 100 + '%';
 }
-function mkTop() {                                         // Tab + Ctrl + mouse pad strip (built once, survives layer / split rebuilds)
-  const blk = document.createElement('div'); blk.className = 'tblk ttop'; blk.dataset.g = 'tTop';
+function mkTop() {                                         // Shift/Win/Tab/Ctrl/Fn/Alt keys and the mouse pad: two separate blocks, built once, survive layer / split rebuilds
+  const frame = (cls, gk, child) => {
+    const blk = document.createElement('div'); blk.className = 'tblk ttop ' + cls; blk.dataset.g = gk;
+    blk.appendChild(child);
+    const ov = document.createElement('div'); ov.className = 'ov'; ov.textContent = '✥ drag to move · pull an edge or corner to resize'; blk.appendChild(ov);
+    T_HND.forEach(m => { const h = document.createElement('div'); h.className = 'rh ' + m; blk.appendChild(h); });
+    tStage.appendChild(blk); tPlace(blk);
+  };
   const kg = document.createElement('div'); kg.className = 'tkgrid';
   [TK('SHIFT', '⇧', 1, { fn: 1, aria: 'Shift' }), TK('WIN', 'Win', 1, { fn: 1 }),
    TK('Tab', 'Tab', 1, { fn: 1 }), TK('CTRL', 'Ctrl', 1, { fn: 1 }),
    TK('FNT', 'Fn', 1, { fn: 1, aria: 'Function keys F1-F12' }), TK('ALT', 'Alt', 1, { fn: 1 })].forEach(k => kg.appendChild(tkEl(k)));
-  blk.appendChild(kg);
+  frame('tkeysb', 'tKeys', kg);
   const mp = document.createElement('div'); mp.className = 'mpad';
   mp.innerHTML = '🖱 tap = click · 2 fingers = scroll · tap, tap+hold = drag<span class="dz"></span>';
-  blk.appendChild(mp);
-  const ov = document.createElement('div'); ov.className = 'ov'; ov.textContent = '✥ drag to move · pull an edge or corner to resize'; blk.appendChild(ov);
-  T_HND.forEach(m => { const h = document.createElement('div'); h.className = 'rh ' + m; blk.appendChild(h); });
-  tStage.appendChild(blk); tPlace(blk);
+  frame('tpadb', 'tPad', mp);
   makePad(mp);
 }
 function buildType() {
@@ -1026,7 +1037,7 @@ tStage.addEventListener('pointerdown', e => {
   const blk = h.closest('.tblk'), gk = blk.dataset.g, g0 = { ...tGeo(gk) };
   const mode = h.classList.contains('rh') ? T_HND.find(m => h.classList.contains(m)) : 'move';
   const r = tStage.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
-  const MINW = 0.14, MINH = gk === 'tTop' ? 0.08 : 0.22;
+  const MINW = 0.14, MINH = (gk === 'tKeys' || gk === 'tPad') ? 0.08 : 0.22;
   h.classList.add('act'); buzz(6);
   const mv = ev => {
     const dx = (ev.clientX - x0) / Math.max(1, r.width), dy = (ev.clientY - y0) / Math.max(1, r.height);
@@ -1185,9 +1196,51 @@ function openLink(u) {
   linksPop.hidden = true; buzz(10); combo('MetaLeft', 'KeyR');
   setTimeout(() => send({ t: 'type', bs: 0, ins: 'chrome ' + u, enter: true, method: S.method, restore: S.restoreClip }), 650);
 }
-$('#pvLinks').addEventListener('click', e => { e.stopPropagation(); if (linksPop.hidden) { renderLinks(); linksPop.hidden = false; } else linksPop.hidden = true; });
+$('#pvLinks').addEventListener('click', e => { e.stopPropagation(); foldersPop.hidden = true; if (linksPop.hidden) { renderLinks(); linksPop.hidden = false; } else linksPop.hidden = true; });
 linksPop.addEventListener('click', e => e.stopPropagation());
-document.addEventListener('click', () => { linksPop.hidden = true; });
+/* Quick folders: Win+R + a shell: name or a path opens it in Explorer on the PC */
+const foldersPop = $('#foldersPop');
+const FD_DEF = [{ n: 'Desktop', u: 'shell:Desktop' }, { n: 'Downloads', u: 'shell:Downloads' }, { n: 'Documents', u: 'shell:Personal' },
+                { n: 'Pictures', u: 'shell:My Pictures' }, { n: 'Videos', u: 'shell:My Video' }, { n: 'Music', u: 'shell:My Music' }, { n: 'This PC', u: 'shell:MyComputerFolder' }];
+let folders = store.get('pd.folders', null); if (!Array.isArray(folders)) folders = FD_DEF.slice();
+const saveFolders = () => store.set('pd.folders', folders);
+function normFolder(v) {                                     // only folder targets go into the Run box: shell:Name, C:\path, \\server\share, %VAR%\path
+  v = (v || '').trim().replace(/\//g, '\\');
+  return /^(shell:[A-Za-z0-9 _.:-]+|[A-Za-z]:\\[^"<>|?*&]*|\\\\[^"<>|?*&]+|%[A-Za-z_]+%[^"<>|?*&]*)$/.test(v) ? v : '';
+}
+function renderFolders() {
+  foldersPop.textContent = '';
+  const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Tap a folder to open it on the PC'; foldersPop.appendChild(h);
+  folders.forEach((l, i) => {
+    const r = document.createElement('div'); r.className = 'lr';
+    const b = document.createElement('button'); b.className = 'lk'; b.textContent = l.n;
+    const sm = document.createElement('small'); sm.textContent = l.u.replace(/^shell:/i, ''); b.appendChild(sm);
+    b.addEventListener('click', () => openFolder(l.u));
+    const d = document.createElement('button'); d.className = 'ld'; d.textContent = '✕'; d.title = 'Remove';
+    d.addEventListener('click', () => { folders.splice(i, 1); saveFolders(); renderFolders(); });
+    r.append(b, d); foldersPop.appendChild(r);
+  });
+  const mk = ph => { const i = document.createElement('input'); i.type = 'text'; i.placeholder = ph; i.autocapitalize = 'off'; i.spellcheck = false; return i; };
+  const a = document.createElement('div'); a.className = 'la';
+  const nm = mk('Name'), pa = mk('D:\\Projects  or  shell:Downloads'); nm.style.flex = '0 0 30%';
+  const ad = document.createElement('button'); ad.textContent = '+ Add';
+  const add = () => {
+    const u = normFolder(pa.value); if (!u) { toast('Use a folder path like D:\\Work or shell:Downloads'); return; }
+    const n = nm.value.trim() || u.replace(/^shell:/i, '').split('\\').filter(Boolean).pop() || u;
+    folders.push({ n, u }); saveFolders(); renderFolders();
+  };
+  ad.addEventListener('click', add); pa.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+  a.append(nm, pa, ad); foldersPop.appendChild(a);
+}
+function openFolder(u) {
+  u = normFolder(u); if (!u) return;
+  if (!connected) { toast('Not connected'); return; }
+  foldersPop.hidden = true; buzz(10); combo('MetaLeft', 'KeyR');
+  setTimeout(() => send({ t: 'type', bs: 0, ins: u, enter: true, method: S.method, restore: S.restoreClip }), 650);
+}
+$('#pvFold').addEventListener('click', e => { e.stopPropagation(); linksPop.hidden = true; if (foldersPop.hidden) { renderFolders(); foldersPop.hidden = false; } else foldersPop.hidden = true; });
+foldersPop.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => { linksPop.hidden = true; foldersPop.hidden = true; });
 $('#pvChrome').addEventListener('click', () => {           // Win+R, type chrome, Enter
   buzz(10); combo('MetaLeft', 'KeyR');
   ['KeyC', 'KeyH', 'KeyR', 'KeyO', 'KeyM', 'KeyE', 'Enter'].forEach((k, i) => setTimeout(() => tapKey(k), 550 + i * 45));
