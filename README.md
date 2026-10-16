@@ -62,3 +62,9 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - You can also **Share** the link text from any app to PhoneDeck.
 - Press **Back twice** to disconnect and return to the link screen.
 - Needs Android 10 or newer.
+
+## v2.3 additions
+- **Type layout** (✍): alphabet-only keyboard for two-hand typing. Marker above the **F** and **J** keys (and a longer buzz on them), `?123` page with symbols + arrows, 🌐 = Win+Space (language), Shift = tap (next key) / double-tap (Caps) / hold. **Adjust** lets you drag each block and pull any edge or corner to resize; **Split** gives a left-hand and a right-hand block you can place independently; **Reset** restores the default. Link mode: tab "✍ Type" in `PC/phone.html`. Bluetooth mode: ✍ button in the top bar.
+- **Xiaomi Smart Pen mode** (✒): pen on the touchpad = left button held, so it draws/drags. 1:1 movement, all pen samples, One Euro smoothing (Pen smoothing slider), cursor follows the hovering pen, palm rejection while the pen is near, barrel button = right button. Tip: in Windows turn off *Enhance pointer precision* (Mouse settings) for exact 1:1 strokes.
+- **Gestures**: 3-finger tap = Win+Tab, 4-finger tap = Win+S (search). Can be turned off in Settings.
+- `PC/phone.html` is the updated page for the PC side (replace your phone.html with it).

@@ -186,7 +186,7 @@
     '[data-pdtabs]>[data-pdtab].sel,[data-pdtabs]>[data-pdtab].selected,[data-pdtabs]>[data-pdtab][class*=active]{' +
     'background:rgba(77,163,255,.18)!important;border-color:rgba(77,163,255,.6)!important;color:#4DA3FF!important}' +
     '[data-pdhide],[data-pdlmr]{display:none!important}';
-  var TAB_RE = /^(keys|numpad|text|touchpad|files|clipboard)$/i;
+  var TAB_RE = /^(keys|type|typing|numpad|text|touchpad|files|clipboard)$/i;
 
   function ensureStyle() {
     if (document.getElementById(STYLE_ID) || !document.documentElement) return;

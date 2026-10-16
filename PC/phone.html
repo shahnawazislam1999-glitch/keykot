@@ -1,0 +1,1406 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0f1115">
+<title>PhoneDeck</title>
+<style>
+:root{--bg:#0f1115;--panel:#181b22;--key:#2a2f3a;--key2:#3a4150;--txt:#e8ebf2;--dim:#8b93a5;--acc:#4da3ff;--ok:#2ecc71;--bad:#ff4d4f}
+:root[data-theme=light]{--bg:#eef0f4;--panel:#fff;--key:#fff;--key2:#dfe3ea;--txt:#1b1f27;--dim:#5d667a;--acc:#0a7cff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--txt);
+  font:14px system-ui,-apple-system,Roboto,sans-serif;user-select:none;-webkit-user-select:none}
+#app{position:relative;display:flex;flex-direction:row;height:100dvh;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+
+/* header */
+header{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;background:var(--panel);flex:none}
+header b{font-size:15px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+.dot.ok{background:var(--ok)}
+#lat{color:var(--dim);font-size:12px;min-width:46px}
+.sp{flex:1}
+.pill{background:var(--key);color:var(--txt);border:0;border-radius:14px;padding:4px 12px;font-size:12px;height:26px}
+.pill.on{background:var(--acc);color:#fff}
+
+/* panes + tab bar */
+main{flex:1;min-height:0;display:flex}
+.pane{display:none;flex:1;min-width:0;min-height:0}
+.pane.on{display:flex}
+nav{display:flex;flex:none;height:50px;background:var(--panel)}
+nav button{flex:1;border:0;background:none;color:var(--dim);font-size:13px;font-weight:600}
+nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
+
+/* keyboard */
+#kbPane{flex-direction:column;padding:8px 22px 16px}  /* side padding keeps Esc/Tab clear of Android edge gestures */
+#kbWrap{flex:1;min-height:0;display:flex;gap:10px;align-items:flex-start;position:relative}
+#left{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+#side{flex:0 0 calc(var(--sw,.36)*100%);min-width:0;display:flex;gap:6px;padding:8px 10px 8px 4px}
+#kb{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;height:calc(var(--kbs,1)*100%)}
+#ms{flex:1 1 0;min-width:0;height:100%;display:flex;flex-direction:column;gap:6px}
+.mpad{flex:1;min-height:0;border-radius:10px;background:var(--panel);border:2px solid var(--key2);touch-action:none;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:11px;text-align:center;padding:4px;line-height:1.5}
+#pad,.mpad{position:relative}
+.dz{position:absolute;inset:0;border-radius:inherit;pointer-events:none;overflow:hidden}
+.dz::before{content:'';position:absolute;left:0;bottom:0;height:5px;width:0;background:var(--acc);opacity:0}
+.dz.arm::before{opacity:1;animation:fillbar var(--hold,3000ms) linear forwards}
+@keyframes fillbar{to{width:100%}}
+.mpad.drag{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 22%,var(--panel))}
+#pad.drag{background:color-mix(in srgb,var(--acc) 22%,var(--panel))}
+.mbtns{display:flex;gap:6px;height:72px;flex:none}
+.mbtns .pbtn{height:auto;border-radius:8px;font-size:13px}
+#np{flex:1.05 1 0;min-width:0;grid-template-rows:0 repeat(5,1fr);margin-top:-3px}
+.npg{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(6,1fr);gap:3px}
+#numPane{padding:8px 22px 6px;justify-content:center}
+#npFull{width:min(100%,620px);height:100%}
+
+/* typing preview */
+#prevBar{position:relative;flex:none;display:flex;align-items:stretch;gap:6px;margin:6px 22px 10px;background:var(--panel);border-radius:8px;padding:3px 4px 3px 8px}
+#prev{position:relative;flex:1;min-width:0;height:var(--ph,54px);overflow-y:auto;overflow-x:hidden;scrollbar-width:none;overscroll-behavior:contain;user-select:text;-webkit-user-select:text}
+#prev::-webkit-scrollbar{display:none}
+#prevScroll{flex:none;width:28px;display:flex;flex-direction:column;gap:3px}
+#prevScroll button{flex:1;min-height:0;border:0;border-radius:6px;background:var(--key);color:var(--dim);font-size:10px;padding:0}
+#prevScroll button:active{background:var(--acc);color:#fff}
+.pl{position:relative;white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;height:18px;line-height:18px;
+  font:12.5px/18px ui-monospace,Consolas,Menlo,monospace;tab-size:4;touch-action:pan-x pan-y;color:var(--txt)}
+.pl::-webkit-scrollbar{display:none}
+.pl.dim{opacity:.55}
+.pl i{color:var(--dim);font-style:normal;opacity:.6}
+.pl .cur{display:inline-block;width:2px;height:14px;background:var(--acc);vertical-align:-2px;margin:0 -1px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+#prev .ph{color:var(--dim);font-size:12px;line-height:18px}
+#prevIn{position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;user-select:text;-webkit-user-select:text}
+/* resize handles: faint until you press and drag them */
+.hbar{position:absolute;z-index:6;touch-action:none;display:flex;align-items:center;justify-content:center;-webkit-user-select:none}
+.hbar::after{content:'';background:var(--txt);opacity:.2;border-radius:4px;transition:opacity .15s,background .15s}
+.hbar.h{width:96px;height:20px;left:50%;transform:translateX(-50%)}
+.hbar.h::after{width:56px;height:5px}
+.hbar.v{width:20px;height:96px;top:50%;transform:translateY(-50%)}
+.hbar.v::after{width:5px;height:56px}
+.hbar.act::after{opacity:.85;background:var(--acc)}
+body.nohandles .hbar{display:none}
+#hPrev{bottom:-15px}
+#hKb{top:calc(var(--kbs,1)*100% - 2px)}
+#hSide{left:calc((1 - var(--sw,.36))*100% - 14px)}
+#prevEdit,#prevClear{flex:none;width:34px;border:0;border-radius:6px;background:var(--key);color:var(--dim);font-size:14px}
+#prevEdit.on{background:var(--acc);color:#fff}
+.row{display:flex;gap:3px;flex:1 1 0;min-height:0}
+.key{position:relative;flex:var(--w) 1 0px;min-width:0;display:flex;align-items:center;justify-content:center;
+  background:var(--key);border-radius:6px;font-size:clamp(10px,3.2vmin,20px);touch-action:none;
+  box-shadow:0 1px 0 rgba(0,0,0,.35)}
+.key.fn{font-size:clamp(9px,2.4vmin,14px);color:var(--dim)}
+.key .sub{position:absolute;top:1px;left:4px;font-size:.55em;color:var(--dim)}
+.key.down{background:var(--acc);color:#fff}
+.key.lock{background:var(--acc);color:#fff;outline:2px solid rgba(255,255,255,.4)}
+.stack{display:flex;flex-direction:column;gap:3px;flex:var(--w) 1 0px;min-width:0}
+.stack .key{flex:1 1 0px}
+#rotate{display:none;text-align:center;color:var(--dim);font-size:12px;padding:2px}
+@media (orientation:portrait){#rotate{display:block}}
+
+/* typing layout (alphabet only, for two-hand typing) */
+#typePane{flex-direction:column;padding:0}
+#tStage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none;--tg:3px}
+.tblk{position:absolute;container-type:size;display:flex;flex-direction:column;gap:var(--tg)}
+.trow{display:flex;gap:var(--tg);flex:1 1 0;min-height:0}
+.tsp{flex:var(--w) 1 0px;min-width:0;pointer-events:none}
+.tk{position:relative;flex:var(--w) 1 0px;min-width:0;display:flex;align-items:center;justify-content:center;
+  background:var(--key);color:var(--txt);border-radius:9px;box-shadow:0 1px 0 rgba(0,0,0,.35);touch-action:none;
+  font-size:clamp(12px,3vmin,26px);font-size:clamp(12px,7.2cqh,34px)}
+.tk.fn{font-size:clamp(10px,2.4vmin,18px);font-size:clamp(10px,4.6cqh,22px);background:var(--key2)}
+.tk.enter{background:var(--acc);color:#fff}
+.tk.down{background:var(--acc);color:#fff;filter:brightness(1.15)}
+.tk.lit{background:var(--acc);color:#fff}
+.tk.lit.lock{outline:2px solid rgba(255,255,255,.55);outline-offset:-3px}
+.tk.home::after{content:'';position:absolute;top:7%;left:50%;width:34%;height:clamp(3px,1.7cqh,7px);transform:translateX(-50%);border-radius:4px;
+  background:var(--acc);display:none;pointer-events:none}
+body.tind .tk.home::after{display:block}
+.tk.down.home::after,.tk.enter::after{background:#fff}
+/* adjust mode: drag a block to move it, pull any edge or corner to resize it */
+.tblk .ov{position:absolute;inset:-5px;z-index:3;display:none;align-items:center;justify-content:center;text-align:center;
+  border:2px dashed var(--acc);border-radius:14px;background:color-mix(in srgb,var(--acc) 16%,transparent);
+  color:var(--txt);font-size:13px;font-weight:600;touch-action:none}
+.tblk .rh{position:absolute;z-index:4;display:none;background:var(--acc);border-radius:7px;touch-action:none}
+.tblk .rh::before{content:'';position:absolute;inset:-14px}
+.tblk .rh.act{background:#fff}
+body.tadj .tblk .ov,body.tadj .tblk .rh{display:flex}
+.rh.n,.rh.s{left:30%;right:30%;height:12px}.rh.n{top:-13px}.rh.s{bottom:-13px}
+.rh.w,.rh.e{top:30%;bottom:30%;width:12px}.rh.w{left:-13px}.rh.e{right:-13px}
+.rh.nw,.rh.ne,.rh.sw,.rh.se{width:22px;height:22px;border-radius:50%}
+.rh.nw{top:-15px;left:-15px}.rh.ne{top:-15px;right:-15px}.rh.sw{bottom:-15px;left:-15px}.rh.se{bottom:-15px;right:-15px}
+
+/* text */
+#textPane{flex-direction:column;padding:10px;gap:8px}
+textarea{flex:1;min-height:0;width:100%;background:var(--panel);color:var(--txt);border:1px solid var(--key2);
+  border-radius:10px;padding:10px;font-size:17px;resize:none;user-select:text;-webkit-user-select:text}
+.btnrow{display:flex;gap:8px;align-items:center;flex:none;flex-wrap:wrap}
+button.big,.btnrow button{background:var(--key);color:var(--txt);border:0;border-radius:10px;padding:0 16px;height:44px;font-size:15px;font-weight:600}
+button.acc{background:var(--acc);color:#fff}
+label.chk{display:flex;align-items:center;gap:6px;color:var(--dim)}
+label.chk input{width:20px;height:20px}
+body.live .nl{display:none}
+
+/* touchpad */
+#padPane{flex-direction:column;padding:8px;gap:8px}
+#pad{flex:1;min-height:0;border-radius:14px;background:var(--panel);border:2px solid var(--key2);touch-action:none;
+  display:flex;align-items:center;justify-content:center;color:var(--dim);text-align:center;padding:10px}
+#pad.drag,.mpad.drag{border-color:var(--acc)}
+#padCtl,#penRow{display:flex;gap:16px;flex:none;font-size:12px;color:var(--dim);align-items:center}
+#padCtl label,#penRow label{display:flex;align-items:center;gap:8px;flex:1}
+#penRow .pill{height:30px;flex:none}
+body.pen #pad::after,body.pen #mpad::after{content:'✒ Pen mode: pen on pad = hold left button';position:absolute;top:6px;left:10px;font-size:11px;color:var(--acc);pointer-events:none}
+body.pen #mpad::after{content:'✒ Pen'}
+input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
+#padbtns{display:flex;gap:8px;flex:none}
+.pbtn{flex:1;height:54px;border-radius:12px;background:var(--key);display:flex;align-items:center;justify-content:center;
+  font-weight:600;touch-action:none}
+.pbtn.down{background:var(--acc);color:#fff}
+
+/* clipboard */
+#clipPane{gap:10px;padding:10px}
+.c1,.c2{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;min-height:0}
+.c2{overflow:auto}
+@media (orientation:portrait){#clipPane{flex-direction:column}}
+#clipPrev{font-size:15px}
+#hist .hitem{background:var(--panel);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:13px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hist .hitem b{color:var(--acc)}
+.h{color:var(--dim);font-size:12px}
+
+/* files */
+#filePane{flex-direction:column;padding:10px 22px;gap:8px}
+#filePane>#sendView{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
+#fileMode{display:flex;gap:6px;flex:none}
+#fileMode button{flex:1;height:34px;border:0;border-radius:17px;background:var(--key);color:var(--dim);font-weight:600;font-size:13px}
+#fileMode button.on{background:var(--acc);color:#fff}
+#getView{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+#getTop{display:flex;gap:8px;align-items:center;flex:none}
+#getTop button{height:38px;border:0;border-radius:10px;background:var(--key);color:var(--txt);font-weight:600;padding:0 14px;font-size:13px}
+#getTop button.acc{background:var(--acc);color:#fff}
+#getPath{flex:1;min-width:0;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#getList{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px}
+.gitem{background:var(--panel);border-radius:8px;padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:10px;min-height:42px}
+.gitem .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gitem .sz{color:var(--dim);font-size:11px;flex:none}
+.gitem input{width:20px;height:20px;flex:none}
+.gitem button{height:32px;border:0;border-radius:8px;background:var(--key);color:var(--txt);font-size:12px;font-weight:600;padding:0 10px;flex:none}
+.gitem.dir .nm{color:var(--acc);font-weight:600}
+#fileTop{display:flex;gap:8px;flex:none;flex-wrap:wrap}
+#fileTop button{flex:1;min-width:120px;height:44px;border:0;border-radius:10px;background:var(--key);color:var(--txt);font-size:14px;font-weight:600}
+#fileTop button.acc{background:var(--acc);color:#fff}
+#fileTop button:disabled{opacity:.4}
+#fileSum{flex:none;background:var(--panel);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+#fileSum .meta{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);gap:8px;flex-wrap:wrap}
+.bar{height:8px;background:var(--key);border-radius:4px;overflow:hidden}
+.bar>div{height:100%;width:0;background:var(--acc);transition:width .15s}
+#fileList{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px}
+.fitem{background:var(--panel);border-radius:8px;padding:6px 10px;font-size:12px;display:flex;flex-direction:column;gap:4px}
+.fitem .n{display:flex;justify-content:space-between;gap:8px}
+.fitem .n span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem.ok .bar>div{background:var(--ok)}
+.fitem.err .bar>div{background:var(--bad)}
+.fitem .bar{height:5px}
+
+/* settings + toast */
+#settings{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10}
+.card{background:var(--panel);border-radius:14px;padding:14px;width:min(520px,94vw);max-height:92dvh;overflow:auto;
+  display:flex;flex-direction:column;gap:10px}
+.card h3{margin:0}
+.srow{display:flex;align-items:center;gap:10px}
+.srow span{width:120px;flex:none}
+.srow select{flex:1;background:var(--key);color:var(--txt);border:0;border-radius:8px;height:36px;padding:0 8px}
+#toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 14px;
+  border-radius:16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="left">
+  <header>
+    <b>PhoneDeck</b>
+    <span id="dot" class="dot"></span><span id="lat">–</span>
+    <span class="sp"></span>
+    <button class="pill" data-tg="tabs" title="Show / hide the bottom tab bar">Tabs</button>
+    <span id="kbTools" style="display:contents">
+      <button class="pill" data-tg="preview">Preview</button>
+      <button class="pill" data-tg="numpad">Numpad</button>
+      <button class="pill" data-tg="mouse">Mouse</button>
+    </span>
+    <span id="typeTools" style="display:contents" hidden>
+      <button class="pill" data-tg="preview">Preview</button>
+      <button class="pill" id="tAdj" title="Move and resize the keyboard on every side">Adjust</button>
+      <button class="pill" id="tSplit" title="Split into a left-hand and a right-hand block">Split</button>
+      <button class="pill" id="tInd" title="Marker above the F and J keys">F·J marks</button>
+      <button class="pill" id="tReset" title="Put the typing keyboard back where it was">Reset</button>
+    </span>
+    <button class="pill" data-tg="pen" title="Xiaomi Smart Pen mode: the pen on the touchpad holds the left button, so it draws / drags">✒ Pen</button>
+    <button id="stickyBtn" class="pill" title="Tap a modifier once to lock it">STICKY</button>
+    <button id="gear" class="pill">⚙</button>
+  </header>
+
+  <div id="prevBar"><div id="prev"></div><div id="prevScroll"><button data-sd="-1" title="Scroll up">▲</button><button data-sd="1" title="Scroll down">▼</button></div><button id="prevEdit" title="Edit with phone keyboard">✎</button><button id="prevClear" title="Clear preview">✕</button><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
+<textarea id="prevIn" autocomplete="off" autocapitalize="off" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
+
+  <main>
+    <!-- 1. KEYBOARD -->
+    <section class="pane on" id="kbPane">
+      <div id="rotate">Rotate to landscape for the full keyboard</div>
+      <div id="kbWrap">
+        <div id="kb"></div>
+        
+        <div class="hbar h" id="hKb" title="Drag to resize the keyboard"></div>
+      </div>
+    </section>
+
+    <!-- 1a. TYPE (alphabet-only layout for two-hand typing) -->
+    <section class="pane" id="typePane">
+      <div id="tStage"></div>
+    </section>
+
+    <!-- 1b. NUMPAD -->
+    <section class="pane" id="numPane">
+      <div id="npFull" class="npg"></div>
+    </section>
+
+    <!-- 2. TEXT -->
+    <section class="pane" id="textPane">
+      <textarea id="txt" placeholder="Type with your phone keyboard (swipe, voice, any language)…" autocomplete="off"></textarea>
+      <div class="btnrow">
+        <label class="chk"><input type="checkbox" data-setting="live"> Live</label>
+        <button id="txtSend" class="acc nl">Send</button>
+        <button id="txtSendEnter" class="nl">Send + ⏎</button>
+        <button id="txtEnter">⏎</button>
+        <button id="txtClear">Clear</button>
+      </div>
+    </section>
+
+    <!-- 3. TOUCHPAD -->
+    <section class="pane" id="padPane">
+      <div id="pad">1 finger: move · tap: click · 2-finger tap: right-click<br>2-finger drag: scroll<br>3-finger tap: Win+Tab · 4-finger tap: Win+S<br>Drag: tap, then tap again and hold, then move<span class="dz"></span></div>
+      <div id="padCtl">
+        <label>Speed <input type="range" min="0.5" max="4" step="0.1" data-setting="sens"></label>
+        <label>Scroll <input type="range" min="0.3" max="4" step="0.1" data-setting="scroll"></label>
+      </div>
+      <div id="penRow">
+        <button class="pill" data-tg="pen" title="Xiaomi Smart Pen mode">✒ Pen mode</button>
+        <label>Pen speed <input type="range" min="0.5" max="4" step="0.1" data-setting="penSpeed"></label>
+        <label>Smooth <input type="range" min="0" max="1" step="0.05" data-setting="penSmooth"></label>
+      </div>
+      <div id="padbtns">
+        <div class="pbtn" data-b="left">Left</div>
+        <div class="pbtn" data-b="right">Right</div>
+      </div>
+    </section>
+
+    <!-- 3b. FILES -->
+    <section class="pane" id="filePane">
+      <div id="fileMode"><button data-fm="send" class="on">⬆ Send to PC</button><button data-fm="get">⬇ Get from PC</button></div>
+      <div id="sendView">
+      <div id="fileTop">
+        <button id="pickFiles" class="acc">+ Files</button>
+        <button id="pickFolder">+ Folder</button>
+        <button id="fileStart" disabled>Start</button>
+        <button id="fileClear" disabled>Clear</button>
+      </div>
+      <input type="file" id="inFiles" multiple hidden>
+      <input type="file" id="inFolder" webkitdirectory multiple hidden>
+      <div id="fileSum">
+        <div class="bar"><div id="fileBar"></div></div>
+        <div class="meta"><span id="fileInfo">Pick files or a folder, then tap Start. Sent over Wi-Fi/USB, no mobile data.</span><span id="fileSpeed"></span></div>
+      </div>
+      <div id="fileList"></div>
+      </div>
+      <div id="getView" hidden>
+        <div id="getTop">
+          <button id="getUp">◀ Back</button><span id="getPath">/</span>
+          <button id="getRefresh">↻</button>
+          <button id="getSel" class="acc" disabled>Download</button>
+        </div>
+        <div id="getList"></div>
+        <div class="h">Shared folder on the PC (it's also where Send-to-PC files land). Drop files there on the laptop, then get them here. Tap a folder's ZIP to download it whole.</div>
+      </div>
+    </section>
+
+    <!-- 4. CLIPBOARD -->
+    <section class="pane" id="clipPane">
+      <div class="c1">
+        <textarea id="clipPrev" placeholder="Clipboard preview (you can also paste or edit text here)"></textarea>
+        <div class="btnrow">
+          <button id="toPC" class="acc">⬆ Paste to PC</button>
+          <button id="fromPC" class="acc">⬇ Get from PC</button>
+          <button id="copyPhone">Copy to phone</button>
+        </div>
+        <label class="chk"><input type="checkbox" data-setting="autoPaste"> Also press Ctrl+V on the PC</label>
+      </div>
+      <div class="c2">
+        <div class="h">Recent (tap to load)</div>
+        <div id="hist"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav id="tabs">
+    <button data-tab="kb" class="on">⌨ Keys</button>
+    <button data-tab="type">✍ Type</button>
+    <button data-tab="num">🔢 Numpad</button>
+    <button data-tab="text">✎ Text</button>
+    <button data-tab="pad">◉ Touchpad</button>
+    <button data-tab="file">⇪ Files</button>
+    <button data-tab="clip">⧉ Clipboard</button>
+  </nav>
+</div>
+<div id="side"><div id="np" class="npg"></div>
+        <div id="ms">
+          <div class="mpad" id="mpad">🖱<br>tap = click<br>2 fingers = scroll<br>tap, tap+hold = drag<span class="dz"></span></div>
+          <div class="mbtns"><div class="pbtn" data-b="left">L</div><div class="pbtn" data-b="middle">M</div><div class="pbtn" data-b="right">R</div></div>
+        </div></div>
+<div class="hbar v" id="hSide" title="Drag to resize the side panels"></div>
+</div>
+
+<!-- settings -->
+<div id="settings" hidden>
+  <div class="card">
+    <h3>Settings</h3>
+    <div class="srow"><span>Pointer speed</span><input type="range" min="0.5" max="4" step="0.1" data-setting="sens"></div>
+    <div class="srow"><span>Hold to drag (2nd tap)</span><input type="range" min="500" max="5000" step="100" data-setting="dragHold"><b id="holdVal" style="width:44px;text-align:right;font-size:12px"></b></div>
+    <div class="srow"><span>Next tap window</span><input type="range" min="100" max="1000" step="50" data-setting="tapGap"><b id="gapVal" style="width:44px;text-align:right;font-size:12px"></b></div>
+    <div class="srow"><span>Scroll speed</span><input type="range" min="0.3" max="4" step="0.1" data-setting="scroll"></div>
+    <div class="srow"><span>Keyboard size</span><input type="range" min="50" max="100" step="1" data-setting="kbSize"></div>
+    <div class="srow"><span>Theme</span>
+      <select data-setting="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="auto">Auto</option></select></div>
+    <div class="srow"><span>Text method</span>
+      <select data-setting="method"><option value="paste">Clipboard + Ctrl+V</option><option value="unicode">Direct Unicode keys</option></select></div>
+    <label class="chk"><input type="checkbox" data-setting="tabs"> Show bottom tab bar (Keys / Numpad / Text...)</label>
+    <label class="chk"><input type="checkbox" data-setting="handles"> Show resize handles</label>
+    <label class="chk"><input type="checkbox" data-setting="preview"> Show typing preview window</label>
+    <label class="chk"><input type="checkbox" data-setting="numpad"> Show numpad beside keys</label>
+    <label class="chk"><input type="checkbox" data-setting="mouse"> Show mouse pad beside keys</label>
+    <label class="chk"><input type="checkbox" data-setting="mbtns"> Show L / M / R buttons under the mouse pad</label>
+    <label class="chk"><input type="checkbox" data-setting="haptics"> Haptic vibration</label>
+    <label class="chk"><input type="checkbox" data-setting="natural"> Natural scrolling (content follows fingers)</label>
+    <label class="chk"><input type="checkbox" data-setting="buttons"> Show touchpad buttons</label>
+    <label class="chk"><input type="checkbox" data-setting="restoreClip"> Restore PC clipboard after typing text</label>
+    <h3 style="font-size:14px;margin:6px 0 0">✒ Xiaomi Smart Pen</h3>
+    <label class="chk"><input type="checkbox" data-setting="pen"> Pen mode: pen on the touchpad = hold left button (draw / drag)</label>
+    <label class="chk"><input type="checkbox" data-setting="penHover"> Cursor follows the pen while it hovers (best for writing)</label>
+    <div class="srow"><span>Pen speed</span><input type="range" min="0.5" max="4" step="0.1" data-setting="penSpeed"></div>
+    <div class="srow"><span>Pen smoothing</span><input type="range" min="0" max="1" step="0.05" data-setting="penSmooth"></div>
+    <h3 style="font-size:14px;margin:6px 0 0">Touchpad gestures</h3>
+    <label class="chk"><input type="checkbox" data-setting="gest"> 3-finger tap = Win+Tab · 4-finger tap = Win+S (search)</label>
+    <h3 style="font-size:14px;margin:6px 0 0">✍ Type layout</h3>
+    <label class="chk"><input type="checkbox" data-setting="tInd"> Marker above the F and J keys</label>
+    <div class="srow"><span>Key gap</span><input type="range" min="0" max="12" step="1" data-setting="tGap"></div>
+    <div class="btnrow">
+      <button id="resetLayout">Reset layout</button>
+      <button id="fsBtn">Fullscreen</button>
+      <button id="reloadBtn">Reload</button>
+      <button id="closeSettings" class="acc">Done</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+(() => {
+const $ = (s, r = document) => r.querySelector(s);
+
+/* ------------------------------------------------------------------ *
+ * Storage + settings
+ * ------------------------------------------------------------------ */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+const TGEO = () => ({ tMain: { x: 0.03, y: 0.04, w: 0.94, h: 0.92 }, tL: { x: 0.02, y: 0.06, w: 0.46, h: 0.88 }, tR: { x: 0.52, y: 0.06, w: 0.46, h: 0.88 } });
+const DEFAULTS = { pen: false, penSpeed: 1.5, penSmooth: 0.5, penHover: true, gest: true, tInd: true, tGap: 3, tSplit: false, ...TGEO(), sens: 1.6, scroll: 1.2, haptics: true, theme: 'dark', kbSize: 100, natural: true,
+                   buttons: true, mbtns: true, method: 'paste', restoreClip: true, autoPaste: false, live: false, preview: true, numpad: true, mouse: true, handles: true, tabs: true, dragHold: 3000, tapGap: 200, prevH: 54, sideW: 0.36 };
+const S = { ...DEFAULTS, ...store.get('pd.settings', {}) };
+
+let curTab = 'kb';
+function updateSideVis() {                                  // numpad / mouse column: Keys tab only, full height
+  const on = (S.numpad || S.mouse) && curTab === 'kb';
+  $('#side').style.display = on ? '' : 'none';
+  $('#hSide').style.display = on ? '' : 'none';
+}
+function applySettings() {
+  const dark = S.theme === 'dark' || (S.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  $('#kbWrap').style.setProperty('--kbs', S.kbSize / 100);
+  $('#np').style.display = S.numpad ? '' : 'none';
+  $('#tabs').style.display = S.tabs ? '' : 'none';
+  document.documentElement.style.setProperty('--sw', S.sideW);
+  updateSideVis();
+  document.documentElement.style.setProperty('--ph', S.prevH + 'px');
+  document.body.classList.toggle('nohandles', !S.handles);
+  $('#ms').style.display = S.mouse ? '' : 'none';
+  const mb = $('.mbtns'); if (mb) mb.style.display = S.mbtns ? '' : 'none';   // L / M / R row; the mouse pad above it grows into the space
+  document.querySelectorAll('[data-tg]').forEach(b => b.classList.toggle('on', !!S[b.dataset.tg]));
+  if (typeof updatePreviewVis === 'function') updatePreviewVis();
+  $('#padbtns').style.display = S.buttons ? 'flex' : 'none';
+  document.body.classList.toggle('live', !!S.live);
+  document.body.classList.toggle('pen', !!S.pen);
+  document.body.classList.toggle('tind', !!S.tInd);
+  $('#tStage').style.setProperty('--tg', Math.min(12, Math.max(0, +S.tGap || 0)) + 'px');
+  $('#tSplit').classList.toggle('on', !!S.tSplit);
+  $('#tInd').classList.toggle('on', !!S.tInd);
+}
+function syncInputs() {
+  const gv = document.getElementById('gapVal'); if (gv) gv.textContent = (S.tapGap / 1000).toFixed(2) + 's';
+  const hv = document.getElementById('holdVal'); if (hv) hv.textContent = (S.dragHold / 1000).toFixed(1) + 's';
+  document.querySelectorAll('[data-setting]').forEach(el => {
+    const k = el.dataset.setting;
+    if (el.type === 'checkbox') el.checked = !!S[k]; else el.value = S[k];
+  });
+}
+document.querySelectorAll('[data-setting]').forEach(el => {
+  el.addEventListener('input', () => {
+    const k = el.dataset.setting;
+    S[k] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? parseFloat(el.value) : el.value;
+    store.set('pd.settings', S);
+    if (k === 'live') lastSent = txt.value;   // text already in the box counts as "sent"
+    applySettings(); syncInputs();
+  });
+});
+
+document.querySelectorAll('[data-tg]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.tg; S[k] = !S[k]; store.set('pd.settings', S); applySettings(); syncInputs();
+}));
+
+function buzz(ms = 10) { if (S.haptics && navigator.vibrate) navigator.vibrate(ms); }
+let toastT = 0;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 1800);
+}
+
+/* ------------------------------------------------------------------ *
+ * WebSocket (auto-reconnect, latency ping)
+ * ------------------------------------------------------------------ */
+let ws = null, connected = false, retry = 300, lastPong = 0, lat = 0, reconnectT = 0;
+
+function setStatus(ok) { $('#dot').classList.toggle('ok', ok); if (!ok) $('#lat').textContent = '–'; }
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function connect() {
+  clearTimeout(reconnectT);
+  if (ws && ws.readyState <= 1) return;
+  ws = new WebSocket('ws://' + location.host + '/ws' + location.search);  // ?key=... is needed in Wi-Fi mode
+  ws.onopen = () => { connected = true; retry = 300; lastPong = performance.now(); lat = 0; setStatus(true); };
+  ws.onclose = () => {
+    connected = false; setStatus(false); resetKeyboardUI(false);
+    releaseTouchpad();
+    reconnectT = setTimeout(connect, retry); retry = Math.min(retry * 1.5, 1500);
+  };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+  ws.onmessage = onMsg;
+}
+function onMsg(ev) {
+  let m; try { m = JSON.parse(ev.data); } catch { return; }
+  if (!m || typeof m !== 'object') return;
+  if (m.t === 'pong' && typeof m.ts === 'number') {
+    lastPong = performance.now();
+    const rtt = lastPong - m.ts;
+    lat = lat ? lat * 0.7 + rtt * 0.3 : rtt;
+    $('#lat').textContent = Math.round(lat) + ' ms';
+  } else if (m.t === 'clip' && typeof m.text === 'string') onClipFromPC(m.text);
+}
+setInterval(() => {
+  if (!connected) return;
+  send({ t: 'ping', ts: performance.now() });
+  if (performance.now() - lastPong > 4000) { try { ws.close(); } catch {} }  // half-open link
+}, 1000);
+
+/* ------------------------------------------------------------------ *
+ * 1. KEYBOARD
+ * ------------------------------------------------------------------ */
+const R = (code, label, w = 1, o = {}) => ({ code, label, w, ...o });
+const sym = (code, main, sub) => R(code, main, 1, { sub });
+const letters = s => [...s].map(c => R('Key' + c, c));
+const MOD = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']);
+const NAV = w => ({ fn: 1, w });
+
+// Every row sums to 15 units + a 1.1 nav column, so the right edge lines up.
+const LAYOUT = [
+  [R('Escape', 'Esc', 1.5, { fn: 1 }),
+   ...Array.from({ length: 12 }, (_, i) => R('F' + (i + 1), 'F' + (i + 1), 1.125, { fn: 1 })),
+   R('Delete', 'Del', 1.1, { fn: 1 })],
+  [sym('Backquote', '`', '~'),
+   ...[...'1234567890'].map(c => sym('Digit' + c, c, '!@#$%^&*()'[(+c + 9) % 10])),
+   sym('Minus', '-', '_'), sym('Equal', '=', '+'), R('Backspace', '⌫', 2), R('Home', 'Home', 1.1, { fn: 1 })],
+  [R('Tab', 'Tab', 1.5, { fn: 1 }), ...letters('QWERTYUIOP'),
+   sym('BracketLeft', '[', '{'), sym('BracketRight', ']', '}'), R('Backslash', '\\', 1.5, { sub: '|' }),
+   R('PageUp', 'PgUp', 1.1, { fn: 1 })],
+  [R('CapsLock', 'Caps', 1.75, { fn: 1 }), ...letters('ASDFGHJKL'),
+   sym('Semicolon', ';', ':'), sym('Quote', "'", '"'), R('Enter', 'Enter ⏎', 2.25, { fn: 1 }),
+   R('PageDown', 'PgDn', 1.1, { fn: 1 })],
+  [R('ShiftLeft', 'Shift', 2.25, { fn: 1 }), ...letters('ZXCVBNM'),
+   sym('Comma', ',', '<'), sym('Period', '.', '>'), sym('Slash', '/', '?'), R('ShiftRight', 'Shift', 2.75, { fn: 1 }),
+   R('End', 'End', 1.1, { fn: 1 })],
+  [R('ControlLeft', 'Ctrl', 1.25, { fn: 1 }), R('MetaLeft', 'Win', 1.25, { fn: 1 }), R('AltLeft', 'Alt', 1.25, { fn: 1 }),
+   R('Space', '', 5.75), R('AltRight', 'Alt', 1.25, { fn: 1 }), R('ControlRight', 'Ctrl', 1.25, { fn: 1 }),
+   R('ArrowLeft', '◀'), { stack: [R('ArrowUp', '▲'), R('ArrowDown', '▼')], w: 1 }, R('ArrowRight', '▶'),
+   R('Insert', 'Ins', 1.1, { fn: 1 })]
+];
+
+function keyEl(k) {
+  const d = document.createElement('div');
+  d.className = 'key' + (k.fn ? ' fn' : '');
+  d.dataset.code = k.code;
+  d.style.setProperty('--w', k.w);
+  if (k.sub) { const s = document.createElement('span'); s.className = 'sub'; s.textContent = k.sub; d.appendChild(s); }
+  d.appendChild(document.createTextNode(k.label));
+  return d;
+}
+const kb = $('#kb');
+LAYOUT.forEach(row => {
+  const r = document.createElement('div'); r.className = 'row';
+  row.forEach(k => {
+    if (k.stack) {
+      const st = document.createElement('div'); st.className = 'stack'; st.style.setProperty('--w', k.w);
+      k.stack.forEach(s => st.appendChild(keyEl(s))); r.appendChild(st);
+    } else r.appendChild(keyEl(k));
+  });
+  kb.appendChild(r);
+});
+
+/* ---- numpad (side + full tab) ---- */
+const NPK = [ // code, label, col, row(1 = first numpad row), colspan, rowspan
+  ['NumLock','Num',1,1],['NumpadDivide','/',2,1],['NumpadMultiply','*',3,1],['NumpadSubtract','-',4,1],
+  ['Numpad7','7',1,2],['Numpad8','8',2,2],['Numpad9','9',3,2],['NumpadAdd','+',4,2,1,2],
+  ['Numpad4','4',1,3],['Numpad5','5',2,3],['Numpad6','6',3,3],
+  ['Numpad1','1',1,4],['Numpad2','2',2,4],['Numpad3','3',3,4],['NumpadEnter','Enter ⏎',4,4,1,2],
+  ['Numpad0','0',1,5,2],['NumpadDecimal','.',3,5]
+];
+function buildNumpad(root, withTopRow) {
+  NPK.forEach(([code, label, c, r, cs = 1, rs = 1]) => {
+    const d = keyEl(R(code, label, 1, { fn: ['NumLock', 'NumpadEnter'].includes(code) }));
+    d.style.gridColumn = c + (cs > 1 ? ' / span ' + cs : '');
+    d.style.gridRow = (r + 1) + (rs > 1 ? ' / span ' + rs : '');   // row 1 = spacer / top row
+    root.appendChild(d);
+  });
+  if (withTopRow) [['Backspace', '⌫', 1], ['Delete', 'Del', 3]].forEach(([code, label, c]) => {
+    const d = keyEl(R(code, label, 1, { fn: 1 }));
+    d.style.gridColumn = c + ' / span 2'; d.style.gridRow = '1'; root.appendChild(d);
+  });
+}
+const np = $('#np'), npFull = $('#npFull');
+buildNumpad(np, false); buildNumpad(npFull, true);
+
+/* ---- typing preview (mirror of what the keys type) ---- */
+const KCHAR = {};   // code -> [normal, shifted]
+const PRINTABLE = /^(Key[A-Z]|Digit\d|Backquote|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash)$/;
+LAYOUT.flat().forEach(k => { if (PRINTABLE.test(k.code || '') && k.label && k.label.length === 1) KCHAR[k.code] = [k.label, k.sub || k.label.toUpperCase()]; });
+KCHAR.Space = [' ', ' ']; KCHAR.Tab = ['\t', '\t']; KCHAR.Enter = ['\n', '\n']; KCHAR.NumpadEnter = ['\n', '\n'];
+for (let i = 0; i < 10; i++) KCHAR['Numpad' + i] = [String(i), String(i)];
+Object.assign(KCHAR, { NumpadDivide: ['/', '/'], NumpadMultiply: ['*', '*'], NumpadSubtract: ['-', '-'], NumpadAdd: ['+', '+'], NumpadDecimal: ['.', '.'] });
+KCHAR.Backslash = ['\\', '|'];
+const pv = { buf: '', caret: 0, caps: false };
+const prevEl = $('#prev');
+const lineStart = i => pv.buf.lastIndexOf('\n', i - 1) + 1;
+const lineEnd = i => { const e = pv.buf.indexOf('\n', i); return e < 0 ? pv.buf.length : e; };
+
+function trackKey(code) {
+  const b = pv.buf; let c = pv.caret;
+  if (code === 'CapsLock') { pv.caps = !pv.caps; return; }
+  const mods = held.has('ControlLeft') || held.has('ControlRight') || held.has('AltLeft') || held.has('AltRight') || held.has('MetaLeft') || held.has('MetaRight');
+  if (mods) return;                                         // shortcuts don't type text
+  const shift = held.has('ShiftLeft') || held.has('ShiftRight');
+  if (KCHAR[code]) {
+    let ch;
+    if (/^Key[A-Z]$/.test(code)) ch = (shift !== pv.caps) ? KCHAR[code][1] : KCHAR[code][0].toLowerCase();
+    else ch = shift ? KCHAR[code][1] : KCHAR[code][0];
+    pv.buf = b.slice(0, c) + ch + b.slice(c); pv.caret = c + 1;
+  } else if (code === 'Backspace') { if (c > 0) { pv.buf = b.slice(0, c - 1) + b.slice(c); pv.caret = c - 1; } }
+  else if (code === 'Delete') pv.buf = b.slice(0, c) + b.slice(c + 1);
+  else if (code === 'ArrowLeft') pv.caret = Math.max(0, c - 1);
+  else if (code === 'ArrowRight') pv.caret = Math.min(b.length, c + 1);
+  else if (code === 'Home') pv.caret = lineStart(c);
+  else if (code === 'End') pv.caret = lineEnd(c);
+  else if (code === 'ArrowUp') { const ls = lineStart(c); if (ls > 0) { const col = c - ls, ps = lineStart(ls - 1); pv.caret = Math.min(ps + col, ls - 1); } }
+  else if (code === 'ArrowDown') { const le = lineEnd(c); if (le < b.length) { const col = c - lineStart(c), ns = le + 1; pv.caret = Math.min(ns + col, lineEnd(ns)); } }
+  else return;
+  if (pv.buf.length > 4000) { const cut = pv.buf.length - 3000; pv.buf = pv.buf.slice(cut); pv.caret = Math.max(0, pv.caret - cut); }
+  renderPreview();
+}
+function renderPreview() {
+  if (!S.preview) return;
+  syncIn();
+  const lines = pv.buf.split('\n');
+  let cl = 0, off = 0;                                     // caret line + offset in it
+  for (let i = 0, p = 0; i < lines.length; i++) { if (pv.caret <= p + lines[i].length) { cl = i; off = pv.caret - p; break; } p += lines[i].length + 1; }
+  const keepScroll = new Map([...prevEl.querySelectorAll('.pl')].map(e => [e.dataset.n, e.scrollLeft]));
+  const st = prevEl.scrollTop;
+  prevEl.textContent = '';
+  if (!pv.buf) { const ph = document.createElement('div'); ph.className = 'ph'; ph.textContent = 'Typing preview: tap text to move the cursor, swipe up/down to scroll'; prevEl.appendChild(ph); return; }
+  const last = lines.length - 1;
+  let base = 0;
+  for (let i = 0; i <= last; i++) {
+    const d = document.createElement('div'); d.className = 'pl' + (i === cl ? '' : ' dim'); d.dataset.n = i; d.dataset.base = base;
+    const t = lines[i];
+    if (i === cl) {
+      d.append(document.createTextNode(t.slice(0, off)));
+      const cur = document.createElement('span'); cur.className = 'cur'; d.appendChild(cur);
+      d.append(document.createTextNode(t.slice(off)));
+    } else d.append(document.createTextNode(t));
+    if (i < last) { const m = document.createElement('i'); m.className = 'nlm'; m.textContent = ' ↵'; d.appendChild(m); }
+    prevEl.appendChild(d);
+    if (i === cl) {
+      const cur = d.querySelector('.cur'), x = cur.offsetLeft, w = d.clientWidth;
+      d.scrollLeft = (x < d.scrollLeft + 10 || x > d.scrollLeft + w - 30) ? Math.max(0, x - w * 0.6) : (keepScroll.get(String(i)) || 0);
+    } else d.scrollLeft = keepScroll.get(String(i)) || 0;
+    base += t.length + 1;
+  }
+  prevEl.scrollTop = st;                                    // keep where the user scrolled...
+  const cd = prevEl.children[cl];                           // ...unless the cursor line is out of view
+  if (cd) {
+    if (cd.offsetTop < prevEl.scrollTop) prevEl.scrollTop = cd.offsetTop;
+    else if (cd.offsetTop + cd.offsetHeight > prevEl.scrollTop + prevEl.clientHeight) prevEl.scrollTop = cd.offsetTop + cd.offsetHeight - prevEl.clientHeight;
+  }
+}
+// Smooth ▲ / ▼ scrolling of the preview
+document.querySelectorAll('#prevScroll button').forEach(b => b.addEventListener('click', () => {
+  prevEl.scrollBy({ top: +b.dataset.sd * Math.max(18, prevEl.clientHeight - 18), behavior: 'smooth' });
+}));
+// Tap in the preview: move the cursor there (and on the PC, with arrow-key taps).
+prevEl.addEventListener('click', e => {
+  const line = e.target.closest('.pl'); if (!line) return;
+  let idx = null;
+  const rng = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY)
+    : (document.caretPositionFromPoint ? (p => p && { startContainer: p.offsetNode, startOffset: p.offset })(document.caretPositionFromPoint(e.clientX, e.clientY)) : null);
+  const text = line.dataset.n !== undefined ? pv.buf.split('\n')[+line.dataset.n] : '';
+  if (rng && line.contains(rng.startContainer) && rng.startContainer.nodeType === 3 && !rng.startContainer.parentElement.closest('.nlm')) {
+    let o = 0;
+    for (const n of line.childNodes) { if (n === rng.startContainer) { o += rng.startOffset; break; } if (n.nodeType === 3) o += n.length; }
+    idx = Math.min(o, text.length);
+  } else idx = text.length;                                 // empty area / newline marker -> end of line
+  const target = +line.dataset.base + idx, delta = target - pv.caret;
+  if (!delta) return;
+  if (connected) { const code = delta < 0 ? 'ArrowLeft' : 'ArrowRight'; for (let i = 0, n = Math.min(Math.abs(delta), 1500); i < n; i++) tapKey(code); }
+  pv.caret = target; buzz(6); renderPreview();
+  if (editing) pin.focus();
+});
+$('#prevClear').addEventListener('click', () => { pv.buf = ''; pv.caret = 0; renderPreview(); });
+
+/* Edit mode: the phone keyboard types into the preview, and every change is replayed on the laptop. */
+const pin = $('#prevIn'); let editing = false;
+function syncIn() {
+  if (!editing) return;
+  if (pin.value !== pv.buf) pin.value = pv.buf;
+  try { pin.setSelectionRange(pv.caret, pv.caret); } catch {}
+}
+function setEditing(on) {
+  editing = on; $('#prevEdit').classList.toggle('on', on);
+  if (on) { pin.value = pv.buf; pin.focus(); syncIn(); } else pin.blur();
+}
+$('#prevEdit').addEventListener('click', () => setEditing(!editing));
+pin.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== pin) { editing = false; $('#prevEdit').classList.remove('on'); } }, 150));
+pin.addEventListener('input', () => {
+  const a = pv.buf, b = pin.value; if (a === b) return;
+  let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let q = 0; while (q < a.length - p && q < b.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  const remEnd = a.length - q, ins = b.slice(p, b.length - q);
+  const delta = remEnd - pv.caret;                          // put the PC cursor at the end of the changed part
+  if (connected) {
+    for (let i = 0, n = Math.min(Math.abs(delta), 1500); i < n; i++) tapKey(delta < 0 ? 'ArrowLeft' : 'ArrowRight');
+    for (let i = 0; i < remEnd - p; i++) tapKey('Backspace');
+    if (ins) sendType(0, ins);
+  }
+  pv.buf = b; pv.caret = p + ins.length;
+  if (pv.buf.length > 4000) { const cut = pv.buf.length - 3000; pv.buf = pv.buf.slice(cut); pv.caret = Math.max(0, pv.caret - cut); pin.value = pv.buf; }
+  renderPreview();
+});
+function updatePreviewVis() {
+  if (!S.preview && editing) setEditing(false);
+  const tab = document.querySelector('#tabs button.on'); const t = tab ? tab.dataset.tab : 'kb';
+  $('#prevBar').hidden = !(S.preview && (t === 'kb' || t === 'num' || t === 'type'));
+  if (S.preview) renderPreview();
+}
+
+const held = new Set();          // key codes currently down on the PC
+const locked = new Set();        // sticky-locked modifiers
+const kbActive = new Map();      // pointerId -> {el, code, timer, iv}
+let sticky = false;
+
+function sendKey(code, down) {
+  send({ t: 'key', code, down });
+  if (down) held.add(code); else held.delete(code);
+}
+function tapKey(code) { send({ t: 'key', code, down: true }); send({ t: 'key', code, down: false }); }
+
+function bindKeys(root) {
+root.addEventListener('pointerdown', e => {
+  const el = e.target.closest('.key'); if (!el) return;
+  e.preventDefault();
+  try { el.setPointerCapture(e.pointerId); } catch {}
+  const code = el.dataset.code, mod = MOD.has(code);
+  buzz();
+  // Sticky mode (or an already-locked modifier): toggle the lock, don't track the finger.
+  if (mod && (sticky || locked.has(code))) {
+    if (locked.has(code)) { locked.delete(code); el.classList.remove('down', 'lock'); sendKey(code, false); }
+    else { locked.add(code); el.classList.add('down', 'lock'); sendKey(code, true); }
+    return;
+  }
+  const a = { el, code, timer: 0, iv: 0 };
+  kbActive.set(e.pointerId, a);
+  el.classList.add('down');
+  sendKey(code, true);
+  if (!mod) trackKey(code);
+  // Hold-to-repeat for normal keys: after 380 ms resend key-down every 35 ms (no key-up in between).
+  if (!mod && code !== 'CapsLock' && code !== 'NumLock') {
+    a.timer = setTimeout(() => { a.iv = setInterval(() => { send({ t: 'key', code, down: true }); trackKey(code); }, 35); }, 380);
+  }
+});
+function kbRelease(e) {
+  const a = kbActive.get(e.pointerId); if (!a) return;
+  kbActive.delete(e.pointerId);
+  clearTimeout(a.timer); clearInterval(a.iv);
+  a.el.classList.remove('down');
+  sendKey(a.code, false);
+}
+root.addEventListener('pointerup', kbRelease);
+root.addEventListener('pointercancel', kbRelease);
+root.addEventListener('lostpointercapture', kbRelease);
+}
+[kb, np, npFull].forEach(bindKeys);
+
+function resetKeyboardUI(notify = true) {
+  for (const a of kbActive.values()) { clearTimeout(a.timer); clearInterval(a.iv); }
+  kbActive.clear();
+  if (notify) for (const c of held) send({ t: 'key', code: c, down: false });
+  held.clear(); locked.clear();
+  document.querySelectorAll('.key.down,.key.lock').forEach(el => el.classList.remove('down', 'lock'));
+  typeReset();
+}
+$('#stickyBtn').addEventListener('click', e => { sticky = !sticky; e.currentTarget.classList.toggle('on', sticky); });
+
+/* ------------------------------------------------------------------ *
+ * 1c. TYPE LAYOUT: alphabet-only keyboard for two-hand typing.
+ *     Marker on F and J, optional split into a left-hand and a right-hand block,
+ *     and every block can be moved and resized from all four sides (Adjust).
+ * ------------------------------------------------------------------ */
+const TK = (code, label, w = 1, o = {}) => ({ code, label, w, ...o });
+const TSP = w => ({ sp: w });
+const tLet = s => [...s].map(c => TK('Key' + c.toUpperCase(), c, 1, { lt: c }));
+const tDig = s => [...s].map(c => TK('Digit' + c, c));
+const tSym = (code, label, sh = false) => TK(code, label, 1, { sh });
+const T_SHIFT = () => TK('SHIFT', '⇧', 1.5, { fn: 1 });
+const T_BKSP = () => TK('Backspace', '⌫', 1.5, { fn: 1 });
+const T_ENTER = w => TK('Enter', '⏎', w, { fn: 1, enter: 1 });
+const T_SPACE = w => TK('Space', '', w, { aria: 'space' });
+const T_GLOBE = () => TK('GLOBE', '🌐', 1, { fn: 1 });
+const T_LAYER = label => TK('LAYER', label, 1.5, { fn: 1 });
+const T_NAV = (code, label, w = 1) => TK(code, label, w, { fn: 1 });
+const T_ABC = {
+  all: [
+    tDig('1234567890'),
+    tLet('qwertyuiop'),
+    [TSP(0.5), ...tLet('asdfghjkl'), TSP(0.5)],
+    [T_SHIFT(), ...tLet('zxcvbnm'), T_BKSP()],
+    [T_LAYER('?123'), TK('Comma', ',', 1), T_GLOBE(), T_SPACE(4), TK('Period', '.', 1), T_ENTER(1.5)]
+  ],
+  L: [tDig('12345'), tLet('qwert'), tLet('asdfg'), [T_SHIFT(), ...tLet('zxcvb')], [T_LAYER('?123'), T_GLOBE(), T_SPACE(4)]],
+  R: [tDig('67890'), tLet('yuiop'), [...tLet('hjkl'), T_ENTER(1.5)], [...tLet('nm'), TK('Comma', ',', 1), TK('Period', '.', 1), T_BKSP()], [T_SPACE(4)]]
+};
+const sRows = [
+  [...'!@#$%^&*()'].map((c, i) => tSym('Digit' + ((i + 1) % 10), c, true)),
+  [tSym('Backquote', '`'), tSym('Backquote', '~', true), tSym('Minus', '-'), tSym('Minus', '_', true), tSym('Equal', '='), tSym('Equal', '+', true),
+   tSym('BracketLeft', '['), tSym('BracketRight', ']'), tSym('BracketLeft', '{', true), tSym('BracketRight', '}', true)],
+  [tSym('Semicolon', ';'), tSym('Semicolon', ':', true), tSym('Quote', "'"), tSym('Quote', '"', true), tSym('Slash', '/'), tSym('Slash', '?', true),
+   tSym('Backslash', '\\'), tSym('Backslash', '|', true), tSym('Comma', '<', true), tSym('Period', '>', true)]
+];
+const T_SYM = {
+  all: [...sRows,
+    [T_NAV('Tab', 'Tab', 1.5), T_NAV('ArrowLeft', '◀'), T_NAV('ArrowUp', '▲'), T_NAV('ArrowDown', '▼'), T_NAV('ArrowRight', '▶'),
+     T_NAV('Home', 'Home'), T_NAV('End', 'End'), T_NAV('Delete', 'Del'), T_BKSP()],
+    [T_LAYER('ABC'), TK('Comma', ',', 1), T_GLOBE(), T_SPACE(4), TK('Period', '.', 1), T_ENTER(1.5)]],
+  L: [sRows[0].slice(0, 5), sRows[1].slice(0, 5), sRows[2].slice(0, 5),
+      [T_NAV('Tab', 'Tab', 1.5), T_NAV('ArrowLeft', '◀'), T_NAV('ArrowUp', '▲'), T_NAV('ArrowDown', '▼'), T_NAV('ArrowRight', '▶')],
+      [T_LAYER('ABC'), T_GLOBE(), T_SPACE(4)]],
+  R: [sRows[0].slice(5), sRows[1].slice(5), sRows[2].slice(5),
+      [T_NAV('Home', 'Home'), T_NAV('End', 'End'), T_NAV('Delete', 'Del'), T_BKSP()],
+      [T_SPACE(2.5), T_ENTER(1.5)]]
+};
+const T_HND = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+const tk = { layer: 'abc', shift: 0, shiftDown: false, used: false, t0: 0, lastTap: 0 };   // shift: 0 off, 1 next key only, 2 caps lock
+const tAct = new Map();                                    // pointerId -> {el, code, timer, iv, tmp}
+const tStage = $('#tStage');
+const tAdjOn = () => document.body.classList.contains('tadj');
+
+function tkEl(k) {
+  if (k.sp != null) { const s = document.createElement('div'); s.className = 'tsp'; s.style.setProperty('--w', k.sp); return s; }
+  const d = document.createElement('div');
+  d.className = 'tk' + (k.fn ? ' fn' : '') + (k.enter ? ' enter' : '') + (k.code === 'KeyF' || k.code === 'KeyJ' ? ' home' : '');
+  d.dataset.tc = k.code;
+  if (k.sh) d.dataset.sh = '1';
+  if (k.lt) d.dataset.lt = k.lt;
+  if (k.aria) d.setAttribute('aria-label', k.aria);
+  d.style.setProperty('--w', k.w);
+  d.textContent = k.label;
+  return d;
+}
+function tGeo(key) {                                       // always returns a usable rectangle (fractions of the stage)
+  const def = TGEO()[key], g = S[key] && typeof S[key] === 'object' ? S[key] : {};
+  const n = (v, d) => (Number.isFinite(+v) ? +v : d);
+  const w = clampN(n(g.w, def.w), 0.14, 1), h = clampN(n(g.h, def.h), 0.22, 1);
+  S[key] = { w, h, x: clampN(n(g.x, def.x), 0, 1 - w), y: clampN(n(g.y, def.y), 0, 1 - h) };
+  return S[key];
+}
+function tPlace(blk) {
+  const g = tGeo(blk.dataset.g);
+  blk.style.left = g.x * 100 + '%'; blk.style.top = g.y * 100 + '%';
+  blk.style.width = g.w * 100 + '%'; blk.style.height = g.h * 100 + '%';
+}
+function buildType() {
+  const wasShift = tk.shift || tk.shiftDown;
+  tStage.textContent = '';
+  const lay = tk.layer === 'sym' ? T_SYM : T_ABC;
+  const mk = (rows, gk) => {
+    const blk = document.createElement('div'); blk.className = 'tblk'; blk.dataset.g = gk;
+    rows.forEach(row => { const r = document.createElement('div'); r.className = 'trow'; row.forEach(k => r.appendChild(tkEl(k))); blk.appendChild(r); });
+    const ov = document.createElement('div'); ov.className = 'ov'; ov.textContent = '✥ drag to move · pull an edge or corner to resize'; blk.appendChild(ov);
+    T_HND.forEach(m => { const h = document.createElement('div'); h.className = 'rh ' + m; blk.appendChild(h); });
+    tStage.appendChild(blk); tPlace(blk);
+  };
+  if (S.tSplit) { mk(lay.L, 'tL'); mk(lay.R, 'tR'); } else mk(lay.all, 'tMain');
+  refreshTypeLabels();
+  return wasShift;
+}
+function refreshTypeLabels() {
+  const up = tk.shift > 0 || tk.shiftDown;
+  tStage.querySelectorAll('.tk[data-lt]').forEach(el => { const t = up ? el.dataset.lt.toUpperCase() : el.dataset.lt; if (el.textContent !== t) el.textContent = t; });
+  tStage.querySelectorAll('.tk[data-tc="SHIFT"]').forEach(el => { el.classList.toggle('lit', up); el.classList.toggle('lock', tk.shift === 2); });
+}
+function typeReset() {
+  for (const a of tAct.values()) { clearTimeout(a.timer); clearInterval(a.iv); }
+  tAct.clear();
+  tk.shift = 0; tk.shiftDown = false; tk.used = false;
+  tStage.querySelectorAll('.tk.down').forEach(el => el.classList.remove('down'));
+  refreshTypeLabels();
+}
+
+/* Shift: tap = next key only, double-tap = Caps Lock, hold = capitals while held (works with two thumbs) */
+function typeShiftDown(a) {
+  const now = performance.now();
+  if (tk.shift === 2) { tk.shift = 0; sendKey('ShiftLeft', false); a.ignore = true; refreshTypeLabels(); return; }       // tap on Caps Lock: off
+  if (tk.shift === 1 && now - tk.lastTap < 350) { tk.shift = 2; tk.lastTap = 0; a.ignore = true; refreshTypeLabels(); return; }   // double tap: Caps Lock
+  if (tk.shift === 1) { tk.shift = 0; sendKey('ShiftLeft', false); a.ignore = true; refreshTypeLabels(); return; }       // slow second tap: cancel
+  tk.shiftDown = true; tk.used = false; tk.t0 = now;
+  if (!held.has('ShiftLeft')) sendKey('ShiftLeft', true);                                                               // held on the PC right away
+  refreshTypeLabels();
+}
+function typeShiftUp(a) {
+  if (a.ignore) return;
+  tk.shiftDown = false;
+  const now = performance.now();
+  if (!tk.used && tk.shift === 0 && now - tk.t0 < 400) { tk.shift = 1; tk.lastTap = now; }   // quick tap: keep Shift for the next key
+  else if (tk.shift === 0) sendKey('ShiftLeft', false);                                       // it was a hold: let go
+  refreshTypeLabels();
+}
+
+tStage.addEventListener('pointerdown', e => {
+  if (tAdjOn()) return;
+  const el = e.target.closest('.tk'); if (!el) return;
+  e.preventDefault();
+  try { el.setPointerCapture(e.pointerId); } catch {}
+  const code = el.dataset.tc;
+  buzz(el.classList.contains('home') && S.tInd ? 24 : 10);       // F and J give a longer buzz so the fingers can find the home row
+  if (code === 'LAYER') { tk.layer = tk.layer === 'abc' ? 'sym' : 'abc'; buildType(); return; }
+  el.classList.add('down');
+  const a = { el, code, timer: 0, iv: 0, tmp: false, once: false };
+  tAct.set(e.pointerId, a);
+  if (code === 'SHIFT') { typeShiftDown(a); return; }
+  if (code === 'GLOBE') {                                         // language switch on Windows = Win+Space
+    a.once = true; sendKey('MetaLeft', true);
+    setTimeout(() => { tapKey('Space'); setTimeout(() => sendKey('MetaLeft', false), 40); }, 25);
+    return;
+  }
+  if (el.dataset.sh === '1' && !(tk.shift > 0 || tk.shiftDown)) { sendKey('ShiftLeft', true); a.tmp = true; }   // symbols like ! @ # need Shift
+  tk.used = true;
+  sendKey(code, true);
+  trackKey(code);
+  a.timer = setTimeout(() => { a.iv = setInterval(() => { send({ t: 'key', code, down: true }); trackKey(code); }, 35); }, 380);   // hold = repeat
+});
+function typeRelease(e) {
+  const a = tAct.get(e.pointerId); if (!a) return;
+  tAct.delete(e.pointerId);
+  clearTimeout(a.timer); clearInterval(a.iv);
+  a.el.classList.remove('down');
+  if (a.code === 'SHIFT') { typeShiftUp(a); return; }
+  if (a.once) return;
+  sendKey(a.code, false);
+  if (a.tmp) sendKey('ShiftLeft', false);
+  if (tk.shift === 1 && !tk.shiftDown) { tk.shift = 0; sendKey('ShiftLeft', false); refreshTypeLabels(); }   // "next key only" ends here
+}
+addEventListener('pointerup', typeRelease);
+addEventListener('pointercancel', typeRelease);
+
+/* Adjust: drag a block to move it, pull an edge / corner to resize it */
+tStage.addEventListener('pointerdown', e => {
+  if (!tAdjOn()) return;
+  const h = e.target.closest('.rh, .ov'); if (!h) return;
+  e.preventDefault(); e.stopPropagation();
+  try { h.setPointerCapture(e.pointerId); } catch {}
+  const blk = h.closest('.tblk'), gk = blk.dataset.g, g0 = { ...tGeo(gk) };
+  const mode = h.classList.contains('rh') ? T_HND.find(m => h.classList.contains(m)) : 'move';
+  const r = tStage.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+  const MINW = 0.14, MINH = 0.22;
+  h.classList.add('act'); buzz(6);
+  const mv = ev => {
+    const dx = (ev.clientX - x0) / Math.max(1, r.width), dy = (ev.clientY - y0) / Math.max(1, r.height);
+    let { x, y, w, h: hh } = g0;
+    if (mode === 'move') { x = clampN(x + dx, 0, 1 - w); y = clampN(y + dy, 0, 1 - hh); }
+    else {
+      if (mode.includes('w')) { const nx = clampN(x + dx, 0, x + w - MINW); w += x - nx; x = nx; }
+      if (mode.includes('e')) w = clampN(w + dx, MINW, 1 - x);
+      if (mode.includes('n')) { const ny = clampN(y + dy, 0, y + hh - MINH); hh += y - ny; y = ny; }
+      if (mode.includes('s')) hh = clampN(hh + dy, MINH, 1 - y);
+    }
+    S[gk] = { x, y, w, h: hh }; tPlace(blk);
+  };
+  const up = () => {
+    h.classList.remove('act');
+    h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+    store.set('pd.settings', S);
+  };
+  h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+});
+function setAdjust(on) {
+  document.body.classList.toggle('tadj', on); $('#tAdj').classList.toggle('on', on);
+  if (on) toast('Drag a block to move it · pull edges or corners to resize');
+}
+$('#tAdj').addEventListener('click', () => setAdjust(!tAdjOn()));
+$('#tSplit').addEventListener('click', () => { S.tSplit = !S.tSplit; store.set('pd.settings', S); resetKeyboardUI(); buildType(); applySettings(); });
+$('#tInd').addEventListener('click', () => { S.tInd = !S.tInd; store.set('pd.settings', S); applySettings(); syncInputs(); });
+$('#tReset').addEventListener('click', () => { Object.assign(S, TGEO()); store.set('pd.settings', S); buildType(); toast('Typing layout reset'); });
+
+
+/* ---- resize handles: only react while pressed and dragged ---- */
+function dragHandle(el, begin, move) {
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    el.classList.add('act'); buzz(6);
+    const s = begin(), x0 = e.clientX, y0 = e.clientY;
+    const mv = ev => { move(s, ev.clientX - x0, ev.clientY - y0); applySettings(); renderPreview(); };
+    const up = () => {
+      el.classList.remove('act');
+      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      store.set('pd.settings', S); syncInputs();
+    };
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  });
+}
+const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+// above the keys: drag up/down = taller / shorter preview
+dragHandle($('#hPrev'), () => S.prevH, (s, dx, dy) => { S.prevH = Math.round(clampN(s + dy, 36, Math.min(320, innerHeight * 0.45))); });
+// below the keys: drag up/down = smaller / bigger keyboard
+dragHandle($('#hKb'), () => S.kbSize, (s, dx, dy) => { S.kbSize = Math.round(clampN(s + dy / Math.max(1, $('#kbWrap').clientHeight) * 100, 50, 100) * 10) / 10; });
+// between keys and side panels: drag left/right = wider / narrower numpad + mouse
+dragHandle($('#hSide'), () => S.sideW, (s, dx) => { S.sideW = Math.round(clampN(s - dx / Math.max(1, $('#app').clientWidth), 0.12, 0.6) * 1000) / 1000; });
+$('#resetLayout').addEventListener('click', () => { Object.assign(S, { prevH: 54, sideW: 0.36, kbSize: 100 }); store.set('pd.settings', S); applySettings(); syncInputs(); renderPreview(); toast('Layout reset'); });
+
+/* ------------------------------------------------------------------ *
+ * 2. TEXT (phone keyboard -> PC)
+ * ------------------------------------------------------------------ */
+const txt = $('#txt');
+let lastSent = '';
+
+function sendType(bs, ins, enter = false) {
+  if (!bs && !ins && !enter) return;
+  send({ t: 'type', bs, ins, enter, method: S.method, restore: S.restoreClip });
+}
+// Live mode: diff old vs new text (by code point) and send "backspace N, insert X".
+txt.addEventListener('input', () => {
+  if (!S.live) return;
+  const a = Array.from(lastSent), b = Array.from(txt.value);
+  let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  sendType(a.length - p, b.slice(p).join(''));
+  lastSent = txt.value;
+});
+$('#txtSend').addEventListener('click', () => { sendType(0, txt.value); txt.value = ''; lastSent = ''; });
+$('#txtSendEnter').addEventListener('click', () => { sendType(0, txt.value, true); txt.value = ''; lastSent = ''; });
+$('#txtEnter').addEventListener('click', () => { buzz(); tapKey('Enter'); });
+$('#txtClear').addEventListener('click', () => { txt.value = ''; lastSent = ''; txt.focus(); });
+
+/* ------------------------------------------------------------------ *
+ * 3. TOUCHPAD
+ * ------------------------------------------------------------------ */
+const acc = { mx: 0, my: 0, sx: 0, sy: 0 };           // pending movement / scroll (shared by all pads)
+let rafId = 0;
+function flush() {
+  rafId = 0;
+  const ix = Math.trunc(acc.mx), iy = Math.trunc(acc.my);
+  if (ix || iy) { acc.mx -= ix; acc.my -= iy; send({ t: 'move', dx: ix, dy: iy }); }   // once per frame
+  if (acc.sx || acc.sy) { send({ t: 'scroll', dx: +acc.sx.toFixed(3), dy: +acc.sy.toFixed(3) }); acc.sx = acc.sy = 0; }
+}
+function schedule() { if (!rafId) rafId = requestAnimationFrame(flush); }
+function flushNow() { if (rafId) cancelAnimationFrame(rafId); flush(); }
+function click(b) { buzz(8); send({ t: 'btn', b, down: true }); send({ t: 'btn', b, down: false }); }
+
+const pads = [];
+// Three-/four-finger tap shortcuts: Win+Tab (task view) and Win+S (search)
+function combo(mod, key) {
+  send({ t: 'key', code: mod, down: true });
+  setTimeout(() => { tapKey(key); setTimeout(() => send({ t: 'key', code: mod, down: false }), 40); }, 25);
+}
+
+// One Euro filter: removes hand jitter at slow speed but adds almost no lag when the pen moves fast.
+function oneEuro() {
+  let x = null, dx = 0, t0 = 0;
+  const a = (cut, dt) => 1 / (1 + 1 / (2 * Math.PI * cut) / dt);
+  return {
+    minCut: 8, beta: 0.03,
+    f(v, t) {
+      if (x === null) { x = v; dx = 0; t0 = t; return v; }
+      const dt = Math.max(0.001, t - t0); t0 = t;
+      dx += a(1, dt) * ((v - x) / dt - dx);
+      x += a(this.minCut + this.beta * Math.abs(dx), dt) * (v - x);
+      return x;
+    }
+  };
+}
+
+function makePad(pad) {
+  const tp = new Map();                                  // pointerId -> {x,y,sx,sy}
+  let g = { max: 0, t: 0, moved: false }, dragging = false, lastTap = { t: 0, x: 0, y: 0 }, holdT = 0;
+  const dzEl = pad.querySelector('.dz');
+  const disarm = () => { clearTimeout(holdT); if (dzEl) dzEl.classList.remove('arm'); };
+  const startDrag = () => { if (dragging) return; disarm(); dragging = true; lastTap.t = 0; buzz(35); send({ t: 'btn', b: 'left', down: true }); pad.classList.add('drag'); };
+
+  /* ---- Xiaomi Smart Pen mode ----
+   * Pen touching the pad = left button held (like click-and-hold on a mouse), so moving the pen draws / drags.
+   * Movement is 1:1 (no acceleration), uses every coalesced pen sample (240 Hz) and a One Euro smoothing filter.
+   * While the pen is near the pad, finger touches are ignored (palm rejection). */
+  const pen = { id: -1, down: false, hover: false, inRange: false, last: 0, ignoreUntil: 0, fx: null, fy: null, lx: 0, ly: 0, rx: 0, ry: 0, btn: 'left' };
+  const penNear = () => { const n = performance.now(); return pen.down || (pen.inRange && n - pen.last < 2000) || n < pen.ignoreUntil; };
+  function penFeed(x, y, tms) {
+    if (!pen.fx) { pen.fx = oneEuro(); pen.fy = oneEuro(); pen.lx = x; pen.ly = y; }
+    pen.fx.minCut = pen.fy.minCut = 40 * Math.pow(0.04, clampN(+S.penSmooth || 0, 0, 1));   // 0 -> 40 Hz (raw), 1 -> 1.6 Hz (very smooth)
+    const t = tms / 1000, fx = pen.fx.f(x, t), fy = pen.fy.f(y, t), sp = S.penSpeed || 1.5;
+    pen.rx = x; pen.ry = y;
+    acc.mx += (fx - pen.lx) * sp; acc.my += (fy - pen.ly) * sp;
+    pen.lx = fx; pen.ly = fy;
+  }
+  function penDown(e) {
+    try { pad.setPointerCapture(e.pointerId); } catch {}
+    tp.clear(); disarm();
+    if (dragging) { dragging = false; send({ t: 'btn', b: 'left', down: false }); pad.classList.remove('drag'); }
+    pen.id = e.pointerId; pen.inRange = true; pen.last = performance.now();
+    pen.btn = (e.buttons & 2) ? 'right' : 'left';                    // pen barrel button = right button
+    flushNow();
+    if (!pen.fx) penFeed(e.clientX, e.clientY, e.timeStamp || performance.now());
+    pen.down = true;
+    send({ t: 'btn', b: pen.btn, down: true });
+    pad.classList.add('drag'); buzz(5);
+  }
+  function penMove(e) {
+    pen.inRange = true; pen.last = performance.now();
+    if (!pen.down) pen.hover = true;                                // this pen reports hover, so pointerleave tells us when it goes away
+    if (!pen.down && !S.penHover) { pen.fx = null; return; }         // hover ignored: lifting the pen works like lifting a mouse
+    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const c of (list.length ? list : [e])) penFeed(c.clientX, c.clientY, c.timeStamp || performance.now());
+    schedule();
+  }
+  function penUp() {
+    if (pen.fx) { acc.mx += (pen.rx - pen.lx) * (S.penSpeed || 1.5); acc.my += (pen.ry - pen.ly) * (S.penSpeed || 1.5); pen.fx = pen.fy = null; }   // deliver what smoothing still held back
+    flushNow();
+    send({ t: 'btn', b: pen.btn, down: false });
+    pen.down = false; pen.ignoreUntil = performance.now() + 350;
+    if (!pen.hover) pen.inRange = false;                            // no hover reports: the pen is considered gone as soon as it lifts
+    pad.classList.remove('drag');
+  }
+  pad.addEventListener('pointerleave', e => {
+    if (e.pointerType !== 'pen' || pen.down) return;
+    pen.inRange = false; pen.ignoreUntil = performance.now() + 350; pen.fx = null;
+  });
+
+  pad.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (e.pointerType === 'pen' && S.pen) { penDown(e); return; }
+    if (S.pen && penNear()) return;                       // palm rejection while the pen is near
+    try { pad.setPointerCapture(e.pointerId); } catch {}
+    const now = performance.now();
+    tp.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
+    if (tp.size === 1) {
+      g = { max: 1, t: now, moved: false };
+      disarm();
+      // Drag = tap, then tap again within the "next tap window" (default 0.2 s) and HOLD anywhere on the pad.
+      if (lastTap.t && now - lastTap.t < S.tapGap) {
+        dzEl.style.setProperty('--hold', S.dragHold + 'ms'); dzEl.classList.add('arm');
+        holdT = setTimeout(() => { if (tp.size === 1 && !g.moved) startDrag(); }, S.dragHold);
+      }
+    } else { g.max = Math.max(g.max, tp.size); disarm(); }
+  });
+  pad.addEventListener('pointermove', e => {
+    if (e.pointerType === 'pen' && S.pen) { penMove(e); return; }
+    const p = tp.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (!dragging && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 12) { g.moved = true; disarm(); }
+    if (tp.size === 1) {
+      const v = Math.hypot(dx, dy);                        // px per event -> acceleration curve
+      const gain = S.sens * Math.min(1 + v * 0.12, 4);
+      acc.mx += dx * gain; acc.my += dy * gain; schedule();
+    } else if (tp.size === 2) {
+      const dir = S.natural ? 1 : -1;                      // average of both fingers; 40 px ~ 1 wheel notch
+      acc.sy += dir * (dy / 2) * S.scroll / 40;
+      acc.sx += -dir * (dx / 2) * S.scroll / 40;
+      schedule();
+    }
+  });
+  function padEnd(e) {
+    if (pen.down && e.pointerId === pen.id) { penUp(); return; }
+    const p = tp.get(e.pointerId); if (!p) return;
+    tp.delete(e.pointerId); disarm();
+    if (tp.size) return;                                   // wait for the last finger
+    flushNow();
+    const now = performance.now();
+    if (dragging) { dragging = false; send({ t: 'btn', b: 'left', down: false }); pad.classList.remove('drag'); return; }
+    if (e.type === 'pointerup' && !g.moved && now - g.t < 400) {
+      if (g.max === 1) { click('left'); lastTap = { t: now, x: p.x, y: p.y }; }
+      else if (g.max === 2) click('right');
+      else if (g.max === 3 && S.gest) { buzz(12); combo('MetaLeft', 'Tab'); }      // 3-finger tap = Win+Tab
+      else if (g.max >= 4 && S.gest) { buzz(12); combo('MetaLeft', 'KeyS'); }      // 4-finger tap = Win+S (search)
+    }
+  }
+  pad.addEventListener('pointerup', padEnd);
+  pad.addEventListener('pointercancel', padEnd);
+  pads.push({ release() { disarm(); tp.clear(); pen.down = false; pen.fx = pen.fy = null; if (dragging) { dragging = false; pad.classList.remove('drag'); } pad.classList.remove('drag'); } });
+}
+makePad($('#pad')); makePad($('#mpad'));
+function releaseTouchpad() { pads.forEach(p => p.release()); }
+
+// Optional on-screen buttons (press/release sent separately so you can drag with them).
+document.querySelectorAll('.pbtn').forEach(el => {
+  const b = el.dataset.b;
+  el.addEventListener('pointerdown', e => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch {} el.classList.add('down'); buzz(); send({ t: 'btn', b, down: true }); });
+  const up = () => { if (el.classList.contains('down')) { el.classList.remove('down'); send({ t: 'btn', b, down: false }); } };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+});
+
+/* ------------------------------------------------------------------ *
+ * 3b. FILES (phone -> PC over the local link, streamed straight to disk)
+ * ------------------------------------------------------------------ */
+const fq = { items: [], running: false, cancel: false, sent: 0, total: 0, t0: 0, active: new Set() };
+const fmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+const FILE_BASE = () => location.protocol + '//' + location.hostname + ':' + ((+location.port || 80) + 1);
+const FILE_PAR = 2;                                       // files uploaded at once
+
+function addFiles(list) {
+  for (const f of list) {
+    const rel = f.webkitRelativePath || f.name;
+    if (fq.items.some(i => i.rel === rel && i.file.size === f.size && i.state !== 'err')) continue;
+    const el = document.createElement('div'); el.className = 'fitem';
+    el.innerHTML = '<div class="n"><span></span><span></span></div><div class="bar"><div></div></div>';
+    el.firstChild.firstChild.textContent = rel; el.firstChild.lastChild.textContent = fmt(f.size);
+    $('#fileList').appendChild(el);
+    fq.items.push({ file: f, rel, el, sent: 0, state: 'wait' });
+  }
+  fileRefresh();
+}
+function fileRefresh() {
+  const todo = fq.items.filter(i => i.state === 'wait' || i.state === 'err');
+  $('#fileStart').disabled = fq.running || !todo.length;
+  $('#fileClear').disabled = fq.running || !fq.items.length;
+  fq.total = fq.items.reduce((a, i) => a + i.file.size, 0);
+  const done = fq.items.filter(i => i.state === 'ok').length;
+  const sent = fq.items.reduce((a, i) => a + (i.state === 'ok' ? i.file.size : i.sent), 0);
+  $('#fileBar').style.width = fq.total ? (sent / fq.total * 100).toFixed(1) + '%' : '0';
+  if (fq.items.length) $('#fileInfo').textContent = done + '/' + fq.items.length + ' files · ' + fmt(sent) + ' of ' + fmt(fq.total);
+  if (fq.running && sent > 0) {
+    const sp = sent / ((performance.now() - fq.t0) / 1000);
+    $('#fileSpeed').textContent = fmt(sp) + '/s · ' + (() => { const s = Math.round((fq.total - sent) / sp); return s >= 60 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : s + 's'; })() + ' left';
+  } else if (!fq.running) $('#fileSpeed').textContent = '';
+}
+function uploadOne(it) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    it.xhr = xhr; it.state = 'run'; it.sent = 0; it.el.className = 'fitem'; it.el.title = '';
+    const bar = it.el.querySelector('.bar>div');
+    xhr.open('POST', FILE_BASE() + '/upload?name=' + encodeURIComponent(it.rel) + (location.search.match(/[?&]key=([^&]+)/) ? '&key=' + RegExp.$1 : ''));
+    xhr.upload.onprogress = e => { it.sent = e.loaded; bar.style.width = (e.loaded / Math.max(1, it.file.size) * 100) + '%'; fileRefresh(); };
+    const fail = msg => { it.state = 'err'; it.el.className = 'fitem err'; it.el.title = msg; it.el.firstChild.lastChild.textContent = msg; resolve(); };
+    xhr.onload = () => {
+      let r = {}; try { r = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status === 200 && r.ok) { it.state = 'ok'; it.sent = it.file.size; bar.style.width = '100%'; it.el.className = 'fitem ok'; it.el.firstChild.lastChild.textContent = '✓ ' + fmt(it.file.size); resolve(); }
+      else fail(r.err || ('Error ' + xhr.status));
+    };
+    xhr.onerror = () => fail('Failed: is the server running?');
+    xhr.onabort = () => { it.state = 'wait'; it.sent = 0; bar.style.width = '0'; resolve(); };
+    xhr.send(it.file);                                      // streamed from storage, never loaded into RAM
+  });
+}
+async function startUpload() {
+  if (fq.running) return;
+  fq.running = true; fq.cancel = false; fq.t0 = performance.now();
+  keepAwake();
+  const queue = fq.items.filter(i => i.state === 'wait' || i.state === 'err');
+  queue.forEach(i => { i.sent = 0; });
+  $('#fileStart').textContent = 'Stop'; $('#fileStart').disabled = false;
+  let next = 0;
+  const worker = async () => { while (!fq.cancel && next < queue.length) await uploadOne(queue[next++]); };
+  await Promise.all(Array.from({ length: Math.min(FILE_PAR, queue.length) }, worker));
+  fq.running = false; $('#fileStart').textContent = 'Start';
+  const bad = fq.items.filter(i => i.state === 'err').length, left = fq.items.filter(i => i.state === 'wait').length;
+  fileRefresh();
+  toast(fq.cancel ? 'Stopped' : bad ? bad + ' failed: tap Start to retry' : left ? 'Stopped' : 'All files sent ✓'); buzz(30);
+}
+$('#fileStart').addEventListener('click', () => {
+  if (fq.running) { fq.cancel = true; fq.items.forEach(i => i.state === 'run' && i.xhr && i.xhr.abort()); } else startUpload();
+});
+$('#fileClear').addEventListener('click', () => { fq.items = []; $('#fileList').textContent = ''; $('#fileInfo').textContent = 'Pick files or a folder, then tap Start.'; fileRefresh(); });
+$('#pickFiles').addEventListener('click', () => $('#inFiles').click());
+$('#pickFolder').addEventListener('click', () => $('#inFolder').click());
+['inFiles', 'inFolder'].forEach(id => $('#' + id).addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; }));
+addEventListener('beforeunload', e => { if (fq.running) { e.preventDefault(); e.returnValue = ''; } });
+
+/* ---- Get from PC (laptop -> phone, saved by Chrome's download manager: fast, resumable) ---- */
+const gp = { path: '', items: [] };
+const keyQ = () => (location.search.match(/[?&]key=([^&]+)/) ? '&key=' + RegExp.$1 : '');
+function setFileMode(m) {
+  document.querySelectorAll('#fileMode button').forEach(b => b.classList.toggle('on', b.dataset.fm === m));
+  $('#sendView').hidden = m !== 'send';
+  $('#getView').hidden = m !== 'get';
+  if (m === 'get') loadList(gp.path);
+}
+document.querySelectorAll('#fileMode button').forEach(b => b.addEventListener('click', () => setFileMode(b.dataset.fm)));
+async function loadList(path) {
+  const box = $('#getList'); box.textContent = '';
+  try {
+    const r = await fetch(FILE_BASE() + '/list?path=' + encodeURIComponent(path) + keyQ());
+    const j = await r.json(); if (!j.ok) throw new Error(j.err || 'error');
+    gp.path = j.path; gp.items = j.items; $('#getPath').textContent = '/' + j.path; $('#getUp').disabled = !j.path;
+    if (!j.items.length) { const e = document.createElement('div'); e.className = 'h'; e.style.padding = '12px'; e.textContent = 'Empty. Put files in: ' + j.dir; box.appendChild(e); }
+    j.items.forEach(it => {
+      const d = document.createElement('div'); d.className = 'gitem' + (it.d ? ' dir' : '');
+      const full = (j.path ? j.path + '/' : '') + it.n;
+      if (!it.d) { const c = document.createElement('input'); c.type = 'checkbox'; c.dataset.p = full; c.addEventListener('change', updSel); d.appendChild(c); }
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = (it.d ? '📁 ' : '') + it.n; d.appendChild(nm);
+      if (it.d) {
+        nm.addEventListener('click', () => loadList(full));
+        const z = document.createElement('button'); z.textContent = 'ZIP ⬇'; z.addEventListener('click', () => grab('zip', full)); d.appendChild(z);
+      } else {
+        const sz = document.createElement('span'); sz.className = 'sz'; sz.textContent = fmt(it.s); d.appendChild(sz);
+        const b = document.createElement('button'); b.textContent = '⬇'; b.addEventListener('click', () => grab('download', full)); d.appendChild(b);
+      }
+      box.appendChild(d);
+    });
+    updSel();
+  } catch (e) {
+    const m = document.createElement('div'); m.className = 'h'; m.style.padding = '12px'; m.textContent = 'Could not load the PC folder. Is the server running / updated?'; box.appendChild(m);
+  }
+}
+function updSel() { const n = document.querySelectorAll('#getList input:checked').length; $('#getSel').disabled = !n; $('#getSel').textContent = n ? 'Download ' + n : 'Download'; }
+function grab(kind, path) {   // a normal browser download: Chrome streams it to storage and can resume it
+  const a = document.createElement('a');
+  a.href = FILE_BASE() + '/' + kind + '?path=' + encodeURIComponent(path) + keyQ();
+  a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+  buzz(10); toast('Download started: see Chrome notifications');
+}
+$('#getSel').addEventListener('click', async () => {
+  const sel = [...document.querySelectorAll('#getList input:checked')].map(c => c.dataset.p);
+  for (const p of sel) { grab('download', p); await new Promise(r => setTimeout(r, 700)); }
+});
+$('#getUp').addEventListener('click', () => loadList(gp.path.split('/').slice(0, -1).join('/')));
+$('#getRefresh').addEventListener('click', () => loadList(gp.path));
+
+/* ------------------------------------------------------------------ *
+ * 4. CLIPBOARD
+ * ------------------------------------------------------------------ */
+const clipPrev = $('#clipPrev');
+function copyText(text) {   // navigator.clipboard needs https/localhost; fall back to execCommand on plain http (Wi-Fi mode)
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+  return new Promise((res, rej) => {
+    try { clipPrev.value = text; clipPrev.focus(); clipPrev.select(); document.execCommand('copy') ? res() : rej(); }
+    catch (e) { rej(e); }
+  });
+}
+let hist = store.get('pd.hist', []);
+
+function renderHist() {
+  const box = $('#hist'); box.textContent = '';
+  hist.forEach(h => {
+    const d = document.createElement('div'); d.className = 'hitem';
+    const tag = document.createElement('b'); tag.textContent = h.dir + '  ';
+    d.append(tag, document.createTextNode(h.text.replace(/\s+/g, ' ').slice(0, 140)));
+    d.addEventListener('click', () => { clipPrev.value = h.text; });
+    box.appendChild(d);
+  });
+}
+function addHist(dir, text) {
+  if (!text) return;
+  hist = hist.filter(h => !(h.dir === dir && h.text === text));
+  hist.unshift({ dir, text: text.slice(0, 5000) });
+  hist = hist.slice(0, 10); store.set('pd.hist', hist); renderHist();
+}
+$('#toPC').addEventListener('click', async () => {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch {}   // needs the one-time Chrome permission
+  if (!text) text = clipPrev.value;
+  if (!text) { toast('Phone clipboard empty / blocked: paste into the box instead'); return; }
+  clipPrev.value = text;
+  send({ t: 'clip_set', text, paste: !!S.autoPaste });
+  addHist('→ PC', text); buzz(); toast(S.autoPaste ? 'Sent + pasted' : 'Sent to PC clipboard');
+});
+$('#fromPC').addEventListener('click', () => { if (!connected) { toast('Not connected'); return; } send({ t: 'clip_get' }); });
+function onClipFromPC(text) {
+  clipPrev.value = text; addHist('← PC', text);
+  copyText(text).then(() => toast('Copied to phone'), () => toast('Got it: tap "Copy to phone"'));
+}
+$('#copyPhone').addEventListener('click', () => {
+  copyText(clipPrev.value).then(() => toast('Copied to phone'), () => toast('Clipboard blocked'));
+});
+
+/* ------------------------------------------------------------------ *
+ * Tabs, settings dialog, fullscreen, wake lock
+ * ------------------------------------------------------------------ */
+function showTab(name) {
+  const prev = curTab;
+  curTab = name; updateSideVis();
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === name + 'Pane'));
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  $('#stickyBtn').hidden = !(name === 'kb' || name === 'num');
+  $('#kbTools').hidden = name !== 'kb';
+  $('#typeTools').hidden = name !== 'type';
+  if (name !== 'type') setAdjust(false);
+  if ((name !== 'kb' && name !== 'num') || prev === 'type') resetKeyboardUI();
+  if (name === 'type') buildType();
+  updatePreviewVis();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+$('#gear').addEventListener('click', () => { $('#settings').hidden = false; });
+$('#closeSettings').addEventListener('click', () => { $('#settings').hidden = true; });
+$('#reloadBtn').addEventListener('click', () => location.reload());
+
+async function goFullscreen() {
+  try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
+}
+$('#fsBtn').addEventListener('click', goFullscreen);
+
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    if ('wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    }
+  } catch {}
+}
+// First tap anywhere: go fullscreen + request the wake lock (both need a user gesture).
+addEventListener('pointerup', () => { if (!document.fullscreenElement) goFullscreen(); keepAwake(); }, { once: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { keepAwake(); if (!connected) connect(); }
+  else resetKeyboardUI();                                    // never leave keys stuck
+});
+addEventListener('blur', () => resetKeyboardUI());
+document.addEventListener('contextmenu', e => { if (!e.target.closest('textarea')) e.preventDefault(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySettings);
+
+/* ------------------------------------------------------------------ */
+applySettings(); syncInputs(); renderHist(); renderPreview(); keepAwake(); connect();
+})();
+</script>
+</body>
+</html>

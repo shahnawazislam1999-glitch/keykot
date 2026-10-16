@@ -54,6 +54,36 @@
             android:textSize="13sp" />
 
         <Button
+            android:id="@+id/typeBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:stateListAnimator="@null"
+            android:text="✍"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/penBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:stateListAnimator="@null"
+            android:text="✒"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="14sp" />
+
+        <Button
             android:id="@+id/settings"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
@@ -67,6 +97,13 @@
             android:textColor="@color/txt"
             android:textSize="15sp" />
     </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/mainArea"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
 
     <com.phonedeck.app.TouchpadView
         android:id="@+id/pad"
@@ -125,4 +162,90 @@
         android:layout_weight="4"
         android:orientation="vertical"
         android:padding="4dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/typeLayer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="8dp">
+
+        <Button
+            android:id="@+id/tAdj"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:stateListAnimator="@null"
+            android:text="Adjust"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/tSplit"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:stateListAnimator="@null"
+            android:text="Split"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/tMarks"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:stateListAnimator="@null"
+            android:text="F·J marks"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/tReset"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_btn"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:stateListAnimator="@null"
+            android:text="Reset"
+            android:textAllCaps="false"
+            android:textColor="@color/txt"
+            android:textSize="13sp" />
+
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/typeStage"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
 </LinearLayout>
