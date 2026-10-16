@@ -70,7 +70,11 @@ nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
 #prevScroll #pvGet{color:#8be0a4}
 #prevScroll #pvLinks{color:#f2b66d}
 #prevScroll #pvMin{color:#c3a6ff}
-#prevBar.ro #prev{box-shadow:inset 3px 0 0 #8be0a4}
+#prevBar.ro #prev{box-shadow:inset 3px 0 0 #8be0a4;touch-action:pan-y}
+#prev .rotxt{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font:inherit;line-height:18px;user-select:text;-webkit-user-select:text;-webkit-touch-callout:default;padding:0 4px 22px 6px;cursor:text}
+#pvCopy{position:absolute;right:122px;bottom:6px;z-index:5;height:26px;padding:0 12px;border:0;border-radius:13px;background:var(--acc);color:#fff;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.45);display:none}
+#prevBar.ro #pvCopy{display:block}
+#pvMin.on{background:var(--acc);color:#fff}
 #linksPop{position:absolute;right:0;top:calc(100% + 4px);z-index:60;width:min(340px,92vw);max-height:62vh;overflow:auto;background:var(--panel);border:1px solid var(--key2);
   border-radius:14px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:6px}
 #linksPop[hidden]{display:none}
@@ -269,7 +273,7 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
     <button id="pvChrome" title="Open Chrome on the PC (Win+R, chrome, Enter)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#4d9bff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L3.34 7A10 10 0 0 1 12 2z" fill="#ef5b4f"/><path d="M20.66 7A10 10 0 0 1 12 22l4.33-7.5A5 5 0 0 0 12 7z" fill="#ffd04a"/><path d="M12 22A10 10 0 0 1 3.34 7l4.33 7.5A5 5 0 0 0 16.33 14.5L12 22z" fill="#3cc47c"/><circle cx="12" cy="12" r="3.6" fill="#fff"/><circle cx="12" cy="12" r="2.6" fill="#4d9bff"/></svg></button>
     <button id="prevEdit" title="Edit with phone keyboard"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/></svg></button>
     <button id="prevClear" title="Clear preview"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </div><div id="linksPop" hidden></div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
+  </div><button id="pvCopy" title="Copy the selected part (or everything if nothing is selected)">Copy</button><div id="linksPop" hidden></div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
 <textarea id="prevIn" autocomplete="off" autocapitalize="off" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
 
   <main>
@@ -654,6 +658,12 @@ function trackKey(code) {
 function renderPreview() {
   if (!S.preview) return;
   syncIn();
+  if (pv.ro) {                                             // text fetched from the PC: plain wrapped text you can select and copy
+    const st0 = prevEl.scrollTop;
+    prevEl.textContent = '';
+    const t = document.createElement('div'); t.className = 'rotxt'; t.textContent = pv.buf; prevEl.appendChild(t);
+    prevEl.scrollTop = st0; return;
+  }
   const lines = pv.buf.split('\n');
   let cl = 0, off = 0;                                     // caret line + offset in it
   for (let i = 0, p = 0; i < lines.length; i++) { if (pv.caret <= p + lines[i].length) { cl = i; off = pv.caret - p; break; } p += lines[i].length + 1; }
@@ -692,6 +702,7 @@ document.querySelectorAll('#prevScroll button[data-sd]').forEach(b => b.addEvent
 }));
 // Tap in the preview: move the cursor there (and on the PC, with arrow-key taps).
 prevEl.addEventListener('click', e => {
+  if (pv.ro) return;                                        // selecting text must not re-render or move the PC cursor
   const line = e.target.closest('.pl'); if (!line) return;
   let idx = null;
   const rng = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY)
@@ -1112,7 +1123,23 @@ function click(b) { buzz(8); send({ t: 'btn', b, down: true }); send({ t: 'btn',
 const pads = [];
 // Three-/four-finger tap shortcuts: Win+Tab (task view) and Win+S (search)
 $('#pvSearch').addEventListener('click', () => { buzz(10); combo('MetaLeft', 'KeyS'); });
-$('#pvMin').addEventListener('click', () => { buzz(10); combo('MetaLeft', 'KeyM'); toast('Minimize all'); });
+let allMin = false;                                         // true after "minimize all": next tap brings the windows back
+const MIN_ICON = '<rect x="5" y="4" width="14" height="10" rx="2" opacity=".55"/><path d="M5 19h14" stroke-width="3"/>';
+const MAX_ICON = '<rect x="9" y="4" width="10" height="9" rx="2" opacity=".55"/><rect x="5" y="9" width="10" height="9" rx="2"/>';
+function setAllMin(v) {
+  allMin = v; const b = $('#pvMin'); b.classList.toggle('on', v);
+  b.querySelector('svg').innerHTML = v ? MAX_ICON : MIN_ICON;
+  b.title = v ? 'Restore all windows (Win+Shift+M)' : 'Minimize all windows (Win+M)';
+}
+$('#pvMin').addEventListener('click', () => {
+  buzz(10);
+  if (!allMin) { combo('MetaLeft', 'KeyM'); setAllMin(true); toast('Minimized all'); }
+  else {                                                    // Win+Shift+M = restore minimized windows
+    send({ t: 'key', code: 'MetaLeft', down: true }); send({ t: 'key', code: 'ShiftLeft', down: true });
+    setTimeout(() => { tapKey('KeyM'); setTimeout(() => { send({ t: 'key', code: 'ShiftLeft', down: false }); send({ t: 'key', code: 'MetaLeft', down: false }); }, 40); }, 25);
+    setAllMin(false); toast('Restored all');
+  }
+});
 $('#pvGet').addEventListener('click', () => {
   if (!connected) { toast('Not connected'); return; }
   buzz(10); pendingGet = true; combo('ControlLeft', 'KeyC');           // copy the PC selection, then ask the PC for its clipboard
@@ -1469,6 +1496,12 @@ $('#toPC').addEventListener('click', async () => {
   addHist('→ PC', text); buzz(); toast(S.autoPaste ? 'Sent + pasted' : 'Sent to PC clipboard');
 });
 $('#fromPC').addEventListener('click', () => { if (!connected) { toast('Not connected'); return; } send({ t: 'clip_get' }); });
+$('#pvCopy').addEventListener('mousedown', e => e.preventDefault());     // keep the text selection alive
+$('#pvCopy').addEventListener('click', () => {
+  const sel = (window.getSelection && String(window.getSelection())) || '';
+  const txt = sel && prevEl.contains(window.getSelection().anchorNode) ? sel : pv.buf;
+  copyText(txt).then(() => toast(sel ? 'Copied selection' : 'Copied all'), () => toast('Clipboard blocked'));
+});
 let pendingGet = false;
 function onClipFromPC(text) {
   if (pendingGet) {                                          // "Get text": show the selection in the preview panel
