@@ -66,6 +66,22 @@ nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
 #prevScroll #prevEdit.on{background:var(--acc);color:#fff}
 #prevScroll #pvSearch{color:#7cc4ff}
 #prevScroll #pvChrome svg{stroke:none}
+#prevScroll #pvMin{grid-row:1 / span 2}
+#prevScroll #pvGet{color:#8be0a4}
+#prevScroll #pvLinks{color:#f2b66d}
+#prevScroll #pvMin{color:#c3a6ff}
+#prevBar.ro #prev{box-shadow:inset 3px 0 0 #8be0a4}
+#linksPop{position:absolute;right:0;top:calc(100% + 4px);z-index:60;width:min(340px,92vw);max-height:62vh;overflow:auto;background:var(--panel);border:1px solid var(--key2);
+  border-radius:14px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:6px}
+#linksPop[hidden]{display:none}
+#linksPop .lr{display:flex;gap:6px}
+#linksPop .lk{flex:1;min-width:0;text-align:left;border:0;border-radius:10px;background:var(--key);color:var(--txt);padding:0 12px;height:40px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#linksPop .lk small{color:var(--dim);margin-left:8px;font-size:11px}
+#linksPop .ld{flex:none;width:40px;height:40px;border:0;border-radius:10px;background:var(--key);color:var(--dim);font-size:14px}
+#linksPop .la{display:flex;gap:6px;margin-top:2px}
+#linksPop .la input{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid var(--key2);background:var(--bg,#111);color:var(--txt);padding:0 10px;font-size:14px}
+#linksPop .la button{flex:none;height:40px;border:0;border-radius:10px;background:var(--acc);color:#fff;padding:0 14px;font-weight:600}
+#linksPop .lh{color:var(--dim);font-size:11px;padding:0 2px}
 .pl{position:relative;white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;height:18px;line-height:18px;
   font:12.5px/18px ui-monospace,Consolas,Menlo,monospace;tab-size:4;touch-action:pan-x pan-y;color:var(--txt)}
 .pl::-webkit-scrollbar{display:none}
@@ -246,11 +262,14 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
   </header>
 
   <div id="prevBar"><div id="prev"></div><div id="prevScroll">
+    <button id="pvGet" title="Get text: copies what you selected on the PC and shows it in the preview"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 11h9M4 16h6"/><path d="M17 12v8m0 0l-3-3m3 3l3-3"/></svg></button>
+    <button id="pvLinks" title="Web links (open in Chrome on the PC)"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button>
+    <button id="pvMin" title="Minimize all windows (Win+M)"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="10" rx="2" opacity=".55"/><path d="M5 19h14" stroke-width="3"/></svg></button>
     <button id="pvSearch" title="Windows Search (Win+S)"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/></svg></button>
     <button id="pvChrome" title="Open Chrome on the PC (Win+R, chrome, Enter)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#4d9bff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L3.34 7A10 10 0 0 1 12 2z" fill="#ef5b4f"/><path d="M20.66 7A10 10 0 0 1 12 22l4.33-7.5A5 5 0 0 0 12 7z" fill="#ffd04a"/><path d="M12 22A10 10 0 0 1 3.34 7l4.33 7.5A5 5 0 0 0 16.33 14.5L12 22z" fill="#3cc47c"/><circle cx="12" cy="12" r="3.6" fill="#fff"/><circle cx="12" cy="12" r="2.6" fill="#4d9bff"/></svg></button>
     <button id="prevEdit" title="Edit with phone keyboard"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/></svg></button>
     <button id="prevClear" title="Clear preview"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
+  </div><div id="linksPop" hidden></div><div class="hbar h" id="hPrev" title="Drag to resize the preview"></div></div>
 <textarea id="prevIn" autocomplete="off" autocapitalize="off" spellcheck="false" aria-hidden="true" tabindex="-1"></textarea>
 
   <main>
@@ -603,16 +622,17 @@ KCHAR.Space = [' ', ' ']; KCHAR.Tab = ['\t', '\t']; KCHAR.Enter = ['\n', '\n']; 
 for (let i = 0; i < 10; i++) KCHAR['Numpad' + i] = [String(i), String(i)];
 Object.assign(KCHAR, { NumpadDivide: ['/', '/'], NumpadMultiply: ['*', '*'], NumpadSubtract: ['-', '-'], NumpadAdd: ['+', '+'], NumpadDecimal: ['.', '.'] });
 KCHAR.Backslash = ['\\', '|'];
-const pv = { buf: '', caret: 0, caps: false };
+const pv = { buf: '', caret: 0, caps: false, ro: false };   // ro: showing text fetched from the PC (view only)
 const prevEl = $('#prev');
 const lineStart = i => pv.buf.lastIndexOf('\n', i - 1) + 1;
 const lineEnd = i => { const e = pv.buf.indexOf('\n', i); return e < 0 ? pv.buf.length : e; };
 
 function trackKey(code) {
-  const b = pv.buf; let c = pv.caret;
+  let b = pv.buf, c = pv.caret;
   if (code === 'CapsLock') { pv.caps = !pv.caps; return; }
   const mods = held.has('ControlLeft') || held.has('ControlRight') || held.has('AltLeft') || held.has('AltRight') || held.has('MetaLeft') || held.has('MetaRight');
   if (mods) return;                                         // shortcuts don't type text
+  if (pv.ro && (KCHAR[code] || code === 'Backspace' || code === 'Delete')) { pv.ro = false; pv.buf = ''; pv.caret = 0; b = ''; c = 0; $('#prevBar').classList.remove('ro'); }   // typing again replaces the fetched text
   const shift = held.has('ShiftLeft') || held.has('ShiftRight');
   if (KCHAR[code]) {
     let ch;
@@ -684,11 +704,11 @@ prevEl.addEventListener('click', e => {
   } else idx = text.length;                                 // empty area / newline marker -> end of line
   const target = +line.dataset.base + idx, delta = target - pv.caret;
   if (!delta) return;
-  if (connected) { const code = delta < 0 ? 'ArrowLeft' : 'ArrowRight'; for (let i = 0, n = Math.min(Math.abs(delta), 1500); i < n; i++) tapKey(code); }
+  if (connected && !pv.ro) { const code = delta < 0 ? 'ArrowLeft' : 'ArrowRight'; for (let i = 0, n = Math.min(Math.abs(delta), 1500); i < n; i++) tapKey(code); }
   pv.caret = target; buzz(6); renderPreview();
   if (editing) pin.focus();
 });
-$('#prevClear').addEventListener('click', () => { pv.buf = ''; pv.caret = 0; renderPreview(); });
+$('#prevClear').addEventListener('click', () => { pv.buf = ''; pv.caret = 0; pv.ro = false; $('#prevBar').classList.remove('ro'); renderPreview(); });
 
 /* Edit mode: the phone keyboard types into the preview, and every change is replayed on the laptop. */
 const pin = $('#prevIn'); let editing = false;
@@ -698,6 +718,7 @@ function syncIn() {
   try { pin.setSelectionRange(pv.caret, pv.caret); } catch {}
 }
 function setEditing(on) {
+  if (on && pv.ro) { toast('This is text fetched from the PC. Clear it first to type.'); return; }
   editing = on; $('#prevEdit').classList.toggle('on', on);
   if (on) { pin.value = pv.buf; pin.focus(); syncIn(); } else pin.blur();
 }
@@ -1091,6 +1112,55 @@ function click(b) { buzz(8); send({ t: 'btn', b, down: true }); send({ t: 'btn',
 const pads = [];
 // Three-/four-finger tap shortcuts: Win+Tab (task view) and Win+S (search)
 $('#pvSearch').addEventListener('click', () => { buzz(10); combo('MetaLeft', 'KeyS'); });
+$('#pvMin').addEventListener('click', () => { buzz(10); combo('MetaLeft', 'KeyM'); toast('Minimize all'); });
+$('#pvGet').addEventListener('click', () => {
+  if (!connected) { toast('Not connected'); return; }
+  buzz(10); pendingGet = true; combo('ControlLeft', 'KeyC');           // copy the PC selection, then ask the PC for its clipboard
+  setTimeout(() => send({ t: 'clip_get' }), 280);
+  setTimeout(() => { if (pendingGet) { pendingGet = false; toast('No reply from the PC'); } }, 3000);
+});
+/* Web links: dynamic list, opened in Chrome on the PC through Win+R */
+const linksPop = $('#linksPop');
+const LK_DEF = [{ n: 'YouTube', u: 'https://youtube.com' }, { n: 'WhatsApp', u: 'https://web.whatsapp.com' }];
+let links = store.get('pd.links', null); if (!Array.isArray(links)) links = LK_DEF.slice();
+const saveLinks = () => store.set('pd.links', links);
+function normUrl(v) {
+  v = (v || '').trim(); if (!v) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = 'https://' + v;
+  return /^https?:\/\/[^\s"<>]+$/i.test(v) ? v : '';                   // only plain web links, nothing else goes into the Run box
+}
+function renderLinks() {
+  linksPop.textContent = '';
+  const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Tap a link to open it in Chrome on the PC'; linksPop.appendChild(h);
+  links.forEach((l, i) => {
+    const r = document.createElement('div'); r.className = 'lr';
+    const b = document.createElement('button'); b.className = 'lk'; b.textContent = l.n;
+    const sm = document.createElement('small'); sm.textContent = l.u.replace(/^https?:\/\//, ''); b.appendChild(sm);
+    b.addEventListener('click', () => openLink(l.u));
+    const d = document.createElement('button'); d.className = 'ld'; d.textContent = '✕'; d.title = 'Remove';
+    d.addEventListener('click', () => { links.splice(i, 1); saveLinks(); renderLinks(); });
+    r.append(b, d); linksPop.appendChild(r);
+  });
+  const a = document.createElement('div'); a.className = 'la';
+  const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Add link, e.g. gmail.com'; inp.autocapitalize = 'off'; inp.spellcheck = false;
+  const ad = document.createElement('button'); ad.textContent = '+ Add';
+  const add = () => {
+    const u = normUrl(inp.value); if (!u) { toast('Enter a valid web address'); return; }
+    let n = u.replace(/^https?:\/\/(www\.)?/i, '').split(/[\/?#]/)[0].split('.')[0]; n = n.charAt(0).toUpperCase() + n.slice(1);
+    links.push({ n: n || u, u }); saveLinks(); renderLinks();
+  };
+  ad.addEventListener('click', add); inp.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+  a.append(inp, ad); linksPop.appendChild(a);
+}
+function openLink(u) {
+  u = normUrl(u); if (!u) return;
+  if (!connected) { toast('Not connected'); return; }
+  linksPop.hidden = true; buzz(10); combo('MetaLeft', 'KeyR');
+  setTimeout(() => send({ t: 'type', bs: 0, ins: 'chrome ' + u, enter: true, method: S.method, restore: S.restoreClip }), 650);
+}
+$('#pvLinks').addEventListener('click', e => { e.stopPropagation(); if (linksPop.hidden) { renderLinks(); linksPop.hidden = false; } else linksPop.hidden = true; });
+linksPop.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => { linksPop.hidden = true; });
 $('#pvChrome').addEventListener('click', () => {           // Win+R, type chrome, Enter
   buzz(10); combo('MetaLeft', 'KeyR');
   ['KeyC', 'KeyH', 'KeyR', 'KeyO', 'KeyM', 'KeyE', 'Enter'].forEach((k, i) => setTimeout(() => tapKey(k), 550 + i * 45));
@@ -1399,7 +1469,18 @@ $('#toPC').addEventListener('click', async () => {
   addHist('→ PC', text); buzz(); toast(S.autoPaste ? 'Sent + pasted' : 'Sent to PC clipboard');
 });
 $('#fromPC').addEventListener('click', () => { if (!connected) { toast('Not connected'); return; } send({ t: 'clip_get' }); });
+let pendingGet = false;
 function onClipFromPC(text) {
+  if (pendingGet) {                                          // "Get text": show the selection in the preview panel
+    pendingGet = false;
+    text = text.replace(/\r\n?/g, '\n');
+    if (!text) { toast('Nothing selected on the PC'); return; }
+    setEditing(false);
+    pv.buf = text.slice(0, 20000); pv.caret = pv.buf.length; pv.ro = true; $('#prevBar').classList.add('ro');
+    if (!S.preview) { S.preview = true; applySettings(); }
+    renderPreview(); prevEl.scrollTop = 0; addHist('← PC', text); buzz(14); toast('Selected text loaded');
+    return;
+  }
   clipPrev.value = text; addHist('← PC', text);
   copyText(text).then(() => toast('Copied to phone'), () => toast('Got it: tap "Copy to phone"'));
 }
