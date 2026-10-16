@@ -535,6 +535,28 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         view.evaluateJavascript(pdJs, null)
     }
 
+    // ==== ANCHOR:DECK_FLOAT ====
+    private fun openOverlaySettings() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) } catch (e2: Exception) { }
+        }
+    }
+
+    /** "Allow background activity / ignore battery optimisation" for this app (keeps the floating keyboard alive). */
+    private fun openBatterySettings() {
+        try {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            if (!pm.isIgnoringBatteryOptimizations(packageName))
+                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            else
+                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (e: Exception) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) } catch (e2: Exception) { }
+        }
+    }
+
     inner class Bridge {
         /** Page script reports the word being typed (empty = a word just ended). */
         @JavascriptInterface
@@ -621,6 +643,69 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             val clip = getSystemService(ClipboardManager::class.java).primaryClip
             if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this@DeckActivity).toString() else ""
         } catch (e: Exception) { "" }
+
+        // ---- floating keyboard + mouse (Type tab) over other apps ----
+        @JavascriptInterface
+        fun floatActive(): Boolean = FloatService.running
+
+        /** JSON {overlay, battery, active} so the page's Settings can show what is still missing. */
+        @JavascriptInterface
+        fun floatStatus(): String {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            return JSONObject()
+                .put("overlay", android.provider.Settings.canDrawOverlays(this@DeckActivity))
+                .put("battery", pm.isIgnoringBatteryOptimizations(packageName))
+                .put("active", FloatService.running)
+                .toString()
+        }
+
+        /** "ok" = started (app goes to the background so the floating keyboard is over the other apps), "perm" = overlay permission screen opened. */
+        @JavascriptInterface
+        fun floatStart(): String {
+            if (!android.provider.Settings.canDrawOverlays(this@DeckActivity)) {
+                runOnUiThread { openOverlaySettings() }
+                return "perm"
+            }
+            runOnUiThread {
+                var asked = false
+                if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    androidx.core.app.ActivityCompat.requestPermissions(this@DeckActivity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 71)
+                    asked = true
+                }
+                FloatService.start(this@DeckActivity, url)
+                if (!asked) moveTaskToBack(true)
+            }
+            return "ok"
+        }
+
+        @JavascriptInterface
+        fun floatStop() { runOnUiThread { FloatService.stop(this@DeckActivity) } }
+
+        @JavascriptInterface
+        fun openOverlaySettings() { runOnUiThread { this@DeckActivity.openOverlaySettings() } }
+
+        @JavascriptInterface
+        fun openBatterySettings() { runOnUiThread { this@DeckActivity.openBatterySettings() } }
+
+        /** Screenshot from the PC: PNG (base64) -> phone clipboard as a real image (content:// URI via FileProvider). */
+        @JavascriptInterface
+        fun writeClipImage(b64: String) {
+            try {
+                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                val dir = java.io.File(cacheDir, "shots").apply { mkdirs() }
+                dir.listFiles()?.forEach { it.delete() }
+                val f = java.io.File(dir, "pc_screenshot_" + System.currentTimeMillis() + ".png")
+                f.writeBytes(bytes)
+                val uri = androidx.core.content.FileProvider.getUriForFile(this@DeckActivity, packageName + ".fileprovider", f)
+                runOnUiThread {
+                    try {
+                        getSystemService(ClipboardManager::class.java)
+                            .setPrimaryClip(ClipData.newUri(contentResolver, "PC screenshot", uri))
+                    } catch (e: Exception) { }
+                }
+            } catch (e: Exception) { }
+        }
 
         @JavascriptInterface
         fun writeClip(text: String) {

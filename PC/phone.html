@@ -70,6 +70,8 @@ nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
 #prevScroll #pvFold{color:#6fd3d3}
 #prevScroll #pvGet{color:#8be0a4}
 #prevScroll #pvLinks{color:#f2b66d}
+#prevScroll #pvShot{color:#7ee0a5}
+#prevScroll #pvShot.busy{opacity:.5;pointer-events:none}
 #prevScroll #pvMin{color:#c3a6ff}
 #prevBar.ro #prev{box-shadow:inset 3px 0 0 #8be0a4;touch-action:pan-y}
 #prev .rotxt{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;font:inherit;line-height:18px;user-select:text;-webkit-user-select:text;-webkit-touch-callout:default;padding:0 4px 22px 6px;cursor:text}
@@ -123,9 +125,14 @@ body.nohandles .hbar{display:none}
 
 /* typing layout (alphabet only, for two-hand typing) */
 #typePane{flex-direction:column;padding:0}
+/* floating window: only the Type keyboard + mouse pad */
+html.float header,html.float #prevBar,html.float nav,html.float #side,html.float #rotate{display:none!important}
+html.float .pane:not(#typePane){display:none!important}
+html.float #typePane{display:flex!important}
+html.float body,html.float #app{background:var(--bg)}
 #tStage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none;--tg:3px}
 .tblk{position:absolute;container-type:size;display:flex;flex-direction:column;gap:var(--tg)}
-.tblk.ttop{flex-direction:row}
+.tblk.ttop{flex-direction:row;z-index:2}   /* Shift/Win/Tab/Ctrl pad + mouse pad always sit ABOVE the main keyboard block */
 .tblk.tpadb .mpad{flex:1 1 0;min-width:0;font-size:clamp(10px,12cqh,13px)}
 .tkgrid{flex:1 1 0;min-width:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:var(--tg)}
 .tkgrid .tk{flex:none;font-size:clamp(10px,13cqh,20px)}
@@ -270,6 +277,7 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
     <button id="pvFold" title="Quick folders on the PC (Desktop, Downloads, Documents...)"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></button>
     <button id="pvGet" title="Get text: copies what you selected on the PC and shows it in the preview"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 11h9M4 16h6"/><path d="M17 12v8m0 0l-3-3m3 3l3-3"/></svg></button>
     <button id="pvLinks" title="Web links (open in Chrome on the PC)"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button>
+    <button id="pvShot" title="Snip to phone: take a screenshot on the PC (Win+Shift+S), then tap this to get the image in the phone clipboard"><svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></button>
     <button id="pvMin" title="Minimize all windows (Win+M)"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="10" rx="2" opacity=".55"/><path d="M5 19h14" stroke-width="3"/></svg></button>
     <button id="pvSearch" title="Windows Search (Win+S)"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5"/></svg></button>
     <button id="pvChrome" title="Open Chrome on the PC (Win+R, chrome, Enter)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#4d9bff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L3.34 7A10 10 0 0 1 12 2z" fill="#ef5b4f"/><path d="M20.66 7A10 10 0 0 1 12 22l4.33-7.5A5 5 0 0 0 12 7z" fill="#ffd04a"/><path d="M12 22A10 10 0 0 1 3.34 7l4.33 7.5A5 5 0 0 0 16.33 14.5L12 22z" fill="#3cc47c"/><circle cx="12" cy="12" r="3.6" fill="#fff"/><circle cx="12" cy="12" r="2.6" fill="#4d9bff"/></svg></button>
@@ -419,9 +427,21 @@ input[type=range]{flex:1;min-width:0;height:28px;accent-color:var(--acc)}
     <div class="srow"><span>Pen smoothing</span><input type="range" min="0" max="1" step="0.05" data-setting="penSmooth"></div>
     <h3 style="font-size:14px;margin:6px 0 0">Touchpad gestures</h3>
     <label class="chk"><input type="checkbox" data-setting="gest"> 3-finger tap = Win+Tab · 4-finger tap = Win+S (search)</label>
+    <h3 style="font-size:14px;margin:6px 0 0">🪟 Floating keyboard + mouse</h3>
+    <label class="chk"><input type="checkbox" id="floatTgl"> Float the Type keyboard + mouse pad over other apps</label>
+    <div id="floatInfo" style="color:var(--dim);font-size:12px;line-height:1.5"></div>
+    <div class="btnrow">
+      <button id="floatPerm">Display-over-apps permission</button>
+      <button id="floatBat">Keep always active</button>
+    </div>
     <h3 style="font-size:14px;margin:6px 0 0">✍ Type layout</h3>
     <label class="chk"><input type="checkbox" data-setting="tInd"> Marker above the F and J keys</label>
     <div class="srow"><span>Key gap</span><input type="range" min="0" max="12" step="1" data-setting="tGap"></div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <b style="font-size:13px">🔖 Layout presets</b>
+      <div class="srow"><input id="presetName" type="text" maxlength="24" placeholder="Preset name (e.g. Split + big keys)" autocomplete="off" style="flex:1;min-width:0;height:40px;border-radius:10px;border:0;padding:0 12px;background:var(--key);color:var(--txt);font-size:14px"><button id="presetSave" class="acc" style="height:40px;border:0;border-radius:10px;padding:0 14px;font-weight:600">🔖 Save</button></div>
+      <div id="presetList" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
     <div class="btnrow">
       <button id="resetLayout">Reset layout</button>
       <button id="fsBtn">Fullscreen</button>
@@ -440,6 +460,10 @@ const $ = (s, r = document) => r.querySelector(s);
 /* ------------------------------------------------------------------ *
  * Storage + settings
  * ------------------------------------------------------------------ */
+const FLOAT = /[?&]float=1/.test(location.search);            // loaded by the app's floating window: Type keyboard + mouse pad only
+const SKEY = FLOAT ? 'pd.settings.float' : 'pd.settings';     // the floating window keeps its own layout (it has its own size)
+const WSQ = location.search.replace(/([?&])float=1&?/, '$1').replace(/[?&]$/, '');   // the PC server never sees the float flag
+if (FLOAT) document.documentElement.classList.add('float');
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
@@ -447,13 +471,13 @@ const store = {
 const TGEO = () => ({ tKeys: { x: 0.03, y: 0.02, w: 0.23, h: 0.3 }, tPad: { x: 0.28, y: 0.02, w: 0.69, h: 0.3 }, tMain: { x: 0.03, y: 0.35, w: 0.94, h: 0.62 }, tL: { x: 0.02, y: 0.35, w: 0.46, h: 0.62 }, tR: { x: 0.52, y: 0.35, w: 0.46, h: 0.62 } });
 const DEFAULTS = { pen: false, penSpeed: 1.5, penSmooth: 0.5, penHover: true, gest: true, tInd: true, tGap: 3, tSplit: false, ...TGEO(), sens: 1.6, scroll: 1.2, haptics: true, theme: 'dark', kbSize: 100, natural: true,
                    buttons: true, mbtns: true, method: 'paste', restoreClip: true, autoPaste: false, live: false, preview: true, numpad: true, mouse: true, handles: true, tabs: true, dragHold: 3000, tapGap: 200, prevH: 54, sideW: 0.36 };
-const S = { ...DEFAULTS, ...store.get('pd.settings', {}) };
-if (!S.tv2) { const g = TGEO(); S.tKeys = g.tKeys; S.tPad = g.tPad; S.tMain = g.tMain; S.tL = g.tL; S.tR = g.tR; S.tv2 = true; S.tv3 = true; store.set('pd.settings', S); }
+const S = { ...DEFAULTS, ...(FLOAT && !store.get(SKEY, null) ? { ...store.get('pd.settings', {}), ...TGEO(), tv2: true, tv3: true } : store.get(SKEY, {})) };
+if (!S.tv2) { const g = TGEO(); S.tKeys = g.tKeys; S.tPad = g.tPad; S.tMain = g.tMain; S.tL = g.tL; S.tR = g.tR; S.tv2 = true; S.tv3 = true; store.set(SKEY, S); }
 if (!S.tv3) {                                               // one-time: the keys and the mouse pad are now separate blocks; keep where the old strip was
   const T = S.tTop && typeof S.tTop === 'object' ? S.tTop : TGEO().tKeys;
   S.tKeys = { x: T.x, y: T.y, w: +(T.w * 0.25).toFixed(4), h: T.h };
   S.tPad = { x: +(T.x + T.w * 0.26).toFixed(4), y: T.y, w: +(T.w * 0.74).toFixed(4), h: T.h };
-  delete S.tTop; S.tv3 = true; store.set('pd.settings', S);
+  delete S.tTop; S.tv3 = true; store.set(SKEY, S);
 }   // one-time: make room for the Tab / Ctrl / mouse strip
 
 let curTab = 'kb';
@@ -496,14 +520,14 @@ document.querySelectorAll('[data-setting]').forEach(el => {
   el.addEventListener('input', () => {
     const k = el.dataset.setting;
     S[k] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? parseFloat(el.value) : el.value;
-    store.set('pd.settings', S);
+    store.set(SKEY, S);
     if (k === 'live') lastSent = txt.value;   // text already in the box counts as "sent"
     applySettings(); syncInputs();
   });
 });
 
 document.querySelectorAll('[data-tg]').forEach(b => b.addEventListener('click', () => {
-  const k = b.dataset.tg; S[k] = !S[k]; store.set('pd.settings', S); applySettings(); syncInputs();
+  const k = b.dataset.tg; S[k] = !S[k]; store.set(SKEY, S); applySettings(); syncInputs();
 }));
 
 function buzz(ms = 10) { if (S.haptics && navigator.vibrate) navigator.vibrate(ms); }
@@ -516,6 +540,7 @@ function toast(msg) {
 /* ------------------------------------------------------------------ *
  * WebSocket (auto-reconnect, latency ping)
  * ------------------------------------------------------------------ */
+const staleUp = new Set();      // keys that were down when the link dropped: released as soon as it is back
 let ws = null, connected = false, retry = 300, lastPong = 0, lat = 0, reconnectT = 0;
 
 function setStatus(ok) { $('#dot').classList.toggle('ok', ok); if (!ok) $('#lat').textContent = '–'; }
@@ -524,10 +549,10 @@ function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function connect() {
   clearTimeout(reconnectT);
   if (ws && ws.readyState <= 1) return;
-  ws = new WebSocket('ws://' + location.host + '/ws' + location.search);  // ?key=... is needed in Wi-Fi mode
-  ws.onopen = () => { connected = true; retry = 300; lastPong = performance.now(); lat = 0; setStatus(true); };
+  ws = new WebSocket('ws://' + location.host + '/ws' + WSQ);  // ?key=... is needed in Wi-Fi mode
+  ws.onopen = () => { for (const c of staleUp) send({ t: 'key', code: c, down: false }); staleUp.clear(); repWait = 0; connected = true; retry = 300; lastPong = performance.now(); lat = 0; setStatus(true); };
   ws.onclose = () => {
-    connected = false; setStatus(false); resetKeyboardUI(false);
+    connected = false; setStatus(false); for (const c of held) staleUp.add(c); for (const a of kbActive.values()) staleUp.add(a.code); for (const a of tAct.values()) staleUp.add(a.code); resetKeyboardUI(false);
     releaseTouchpad();
     reconnectT = setTimeout(connect, retry); retry = Math.min(retry * 1.5, 1500);
   };
@@ -539,6 +564,7 @@ function onMsg(ev) {
   if (!m || typeof m !== 'object') return;
   if (m.t === 'pong' && typeof m.ts === 'number') {
     lastPong = performance.now();
+    if (m.ts === repTs) repWait = 0;
     const rtt = lastPong - m.ts;
     lat = lat ? lat * 0.7 + rtt * 0.3 : rtt;
     $('#lat').textContent = Math.round(lat) + ' ms';
@@ -776,6 +802,25 @@ function sendKey(code, down) {
 }
 function tapKey(code) { send({ t: 'key', code, down: true }); send({ t: 'key', code, down: false }); }
 
+/* Hold-to-repeat with flow control. The old version pushed a key-down every 35 ms no matter how fast the PC could take them:
+ * on a slower link / PC the messages piled up, the key-UP waited behind them (keys kept typing "uiuiui" after release) and the pong
+ * was stuck in the same queue, so the 4 s watchdog cut the link while keys were still down. Now the next repeat is sent only after
+ * the PC has answered a ping sent right behind the previous one, i.e. after everything before it was really processed. */
+let repWait = 0, repTs = 0;
+function startRepeat(a, code) {
+  a.timer = setTimeout(() => {
+    a.iv = setInterval(() => {
+      if (repWait && performance.now() - repWait < 500) return;      // PC has not caught up yet: send nothing new (500 ms = reply lost, carry on)
+      send({ t: 'key', code, down: true }); trackKey(code);
+      repWait = repTs = performance.now(); send({ t: 'ping', ts: repTs });
+    }, 35);
+  }, 380);
+}
+function stopKeyHold(map, id) {                                  // a new press with the same pointer id must never leave an old repeat running
+  const o = map.get(id); if (!o) return;
+  clearTimeout(o.timer); clearInterval(o.iv); map.delete(id);
+  o.el.classList.remove('down'); sendKey(o.code, false);
+}
 function bindKeys(root) {
 root.addEventListener('pointerdown', e => {
   const el = e.target.closest('.key'); if (!el) return;
@@ -789,15 +834,14 @@ root.addEventListener('pointerdown', e => {
     else { locked.add(code); el.classList.add('down', 'lock'); sendKey(code, true); }
     return;
   }
+  stopKeyHold(kbActive, e.pointerId);
   const a = { el, code, timer: 0, iv: 0 };
   kbActive.set(e.pointerId, a);
   el.classList.add('down');
   sendKey(code, true);
   if (!mod) trackKey(code);
   // Hold-to-repeat for normal keys: after 380 ms resend key-down every 35 ms (no key-up in between).
-  if (!mod && code !== 'CapsLock' && code !== 'NumLock') {
-    a.timer = setTimeout(() => { a.iv = setInterval(() => { send({ t: 'key', code, down: true }); trackKey(code); }, 35); }, 380);
-  }
+  if (!mod && code !== 'CapsLock' && code !== 'NumLock') startRepeat(a, code);
 });
 function kbRelease(e) {
   const a = kbActive.get(e.pointerId); if (!a) return;
@@ -997,6 +1041,7 @@ tStage.addEventListener('pointerdown', e => {
   if (code === 'LAYER') { tk.layer = tk.layer === 'abc' ? 'sym' : 'abc'; buildType(); return; }
   if (code === 'FNT') { tk.fnRow = !tk.fnRow; buildType(); return; }               // show / hide the F1-F12 row
   el.classList.add('down');
+  if (tAct.has(e.pointerId) && !T_MOD[tAct.get(e.pointerId).code] && tAct.get(e.pointerId).code !== 'SHIFT') stopKeyHold(tAct, e.pointerId);
   const a = { el, code, timer: 0, iv: 0, tmp: false, once: false };
   tAct.set(e.pointerId, a);
   if (code === 'SHIFT') { typeShiftDown(a); return; }
@@ -1010,7 +1055,7 @@ tStage.addEventListener('pointerdown', e => {
   tk.used = true; for (const m in T_MOD) tk.mod[m].used = true;
   sendKey(code, true);
   trackKey(code);
-  a.timer = setTimeout(() => { a.iv = setInterval(() => { send({ t: 'key', code, down: true }); trackKey(code); }, 35); }, 380);   // hold = repeat
+  startRepeat(a, code);                                           // hold = repeat
 });
 function typeRelease(e) {
   const a = tAct.get(e.pointerId); if (!a) return;
@@ -1054,7 +1099,7 @@ tStage.addEventListener('pointerdown', e => {
   const up = () => {
     h.classList.remove('act');
     h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
-    store.set('pd.settings', S);
+    store.set(SKEY, S);
   };
   h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
 });
@@ -1063,9 +1108,65 @@ function setAdjust(on) {
   if (on) toast('Drag a block to move it · pull edges or corners to resize');
 }
 $('#tAdj').addEventListener('click', () => setAdjust(!tAdjOn()));
-$('#tSplit').addEventListener('click', () => { S.tSplit = !S.tSplit; store.set('pd.settings', S); resetKeyboardUI(); buildType(); applySettings(); });
-$('#tInd').addEventListener('click', () => { S.tInd = !S.tInd; store.set('pd.settings', S); applySettings(); syncInputs(); });
-$('#tReset').addEventListener('click', () => { Object.assign(S, TGEO()); store.set('pd.settings', S); buildType(); toast('Typing layout reset'); });
+$('#tSplit').addEventListener('click', () => { S.tSplit = !S.tSplit; store.set(SKEY, S); resetKeyboardUI(); buildType(); applySettings(); });
+$('#tInd').addEventListener('click', () => { S.tInd = !S.tInd; store.set(SKEY, S); applySettings(); syncInputs(); });
+/* ---- 🪟 floating mode (native overlay window, only inside the PhoneDeck app) ---- */
+function floatStatus() { try { return JSON.parse(window.PDNative.floatStatus()); } catch { return null; } }
+function floatSync() {
+  const NAT = window.PDNative, has = !!(NAT && NAT.floatStart), st = has ? floatStatus() : null;
+  $('#floatTgl').checked = !!(st && st.active);
+  $('#floatTgl').disabled = !has; $('#floatPerm').disabled = !has; $('#floatBat').disabled = !has;
+  $('#floatInfo').textContent = !has ? 'Available in the PhoneDeck app only.'
+    : 'Overlay permission: ' + (st && st.overlay ? '✔ allowed' : '✖ not allowed yet') + ' · Always active: ' + (st && st.battery ? '✔ on' : '✖ off (tap "Keep always active")')
+      + '. Drag the ⠿ bar to move, ◢ to resize, slider = opacity, ▁ = fold, ✕ = close.';
+}
+$('#floatTgl').addEventListener('change', e => {
+  const NAT = window.PDNative; if (!NAT || !NAT.floatStart) { e.target.checked = false; toast('Open this in the PhoneDeck app'); return; }
+  if (e.target.checked) {
+    const r = NAT.floatStart();
+    if (r === 'perm') { e.target.checked = false; toast('Allow "Display over other apps", then switch this on again'); }
+    else { $('#settings').hidden = true; }
+  } else NAT.floatStop();
+  setTimeout(floatSync, 400);
+});
+$('#floatPerm').addEventListener('click', () => { try { window.PDNative.openOverlaySettings(); } catch {} });
+$('#floatBat').addEventListener('click', () => { try { window.PDNative.openBatterySettings(); } catch {} });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#settings').hidden) floatSync(); });
+
+/* ---- 🔖 layout presets: save / apply / delete the Type layout (block positions, split, gap, F·J marks) ---- */
+const PKEYS = ['tKeys', 'tPad', 'tMain', 'tL', 'tR', 'tGap', 'tSplit', 'tInd'];
+function renderPresets() {
+  const box = $('#presetList'); if (!box) return;
+  const list = store.get('pd.presets', []);
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<span style="color:var(--dim);font-size:12px">No presets yet - set up the Type layout, name it and tap Save.</span>'; return; }
+  list.forEach((p, i) => {
+    const row = document.createElement('div'); row.className = 'srow';
+    const ap = document.createElement('button'); ap.textContent = '🔖 ' + p.name;
+    ap.style.cssText = 'flex:1;min-width:0;text-align:left;height:40px;border:0;border-radius:10px;padding:0 12px;background:var(--key);color:var(--txt);font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    ap.addEventListener('click', () => {
+      Object.assign(S, JSON.parse(JSON.stringify(p.data))); store.set(SKEY, S);
+      resetKeyboardUI(); buildType(); applySettings(); syncInputs(); toast('Preset "' + p.name + '" applied');
+    });
+    const up = document.createElement('button'); up.textContent = '⟳'; up.title = 'Overwrite with the current layout';
+    const del = document.createElement('button'); del.textContent = '✕'; del.title = 'Delete preset';
+    [up, del].forEach(x => x.style.cssText = 'width:40px;height:40px;border:0;border-radius:10px;background:var(--key);color:var(--txt);font-size:16px');
+    up.addEventListener('click', () => { const l = store.get('pd.presets', []); if (l[i]) { l[i].data = snapPreset(); store.set('pd.presets', l); toast('Preset "' + p.name + '" updated'); } });
+    del.addEventListener('click', () => { const l = store.get('pd.presets', []); l.splice(i, 1); store.set('pd.presets', l); renderPresets(); });
+    row.append(ap, up, del); box.appendChild(row);
+  });
+}
+function snapPreset() { const d = {}; PKEYS.forEach(k => { d[k] = JSON.parse(JSON.stringify(S[k])); }); return d; }
+$('#presetSave').addEventListener('click', () => {
+  const inp = $('#presetName'); const list = store.get('pd.presets', []);
+  const name = (inp.value || '').trim() || ('Layout ' + (list.length + 1));
+  const ex = list.findIndex(p => p.name === name);
+  if (ex >= 0) list[ex].data = snapPreset(); else list.push({ name, data: snapPreset() });
+  store.set('pd.presets', list); inp.value = ''; renderPresets(); toast('Saved preset "' + name + '"');
+});
+renderPresets();
+
+$('#tReset').addEventListener('click', () => { Object.assign(S, TGEO()); store.set(SKEY, S); buildType(); toast('Typing layout reset'); });
 
 
 /* ---- resize handles: only react while pressed and dragged ---- */
@@ -1079,7 +1180,7 @@ function dragHandle(el, begin, move) {
     const up = () => {
       el.classList.remove('act');
       el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
-      store.set('pd.settings', S); syncInputs();
+      store.set(SKEY, S); syncInputs();
     };
     el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
   });
@@ -1091,7 +1192,7 @@ dragHandle($('#hPrev'), () => S.prevH, (s, dx, dy) => { S.prevH = Math.round(cla
 dragHandle($('#hKb'), () => S.kbSize, (s, dx, dy) => { S.kbSize = Math.round(clampN(s + dy / Math.max(1, $('#kbWrap').clientHeight) * 100, 50, 100) * 10) / 10; });
 // between keys and side panels: drag left/right = wider / narrower numpad + mouse
 dragHandle($('#hSide'), () => S.sideW, (s, dx) => { S.sideW = Math.round(clampN(s - dx / Math.max(1, $('#app').clientWidth), 0.12, 0.6) * 1000) / 1000; });
-$('#resetLayout').addEventListener('click', () => { Object.assign(S, { prevH: 54, sideW: 0.36, kbSize: 100 }); store.set('pd.settings', S); applySettings(); syncInputs(); renderPreview(); toast('Layout reset'); });
+$('#resetLayout').addEventListener('click', () => { Object.assign(S, { prevH: 54, sideW: 0.36, kbSize: 100 }); store.set(SKEY, S); applySettings(); syncInputs(); renderPreview(); toast('Layout reset'); });
 
 /* ------------------------------------------------------------------ *
  * 2. TEXT (phone keyboard -> PC)
@@ -1133,6 +1234,37 @@ function click(b) { buzz(8); send({ t: 'btn', b, down: true }); send({ t: 'btn',
 
 const pads = [];
 // Three-/four-finger tap shortcuts: Win+Tab (task view) and Win+S (search)
+/* ---- 📸 Snip -> phone clipboard: PC clipboard image (Win+Shift+S) is saved by a hidden PowerShell into the shared folder, fetched, then put on the phone clipboard as an image ---- */
+async function shotToPhone() {
+  const btn = $('#pvShot');
+  if (!connected) { toast('Not connected'); return; }
+  if (btn.classList.contains('busy')) return;
+  btn.classList.add('busy'); buzz(10);
+  const done = msg => { btn.classList.remove('busy'); toast(msg); };
+  try {
+    const lr = await (await fetch(FILE_BASE() + '/list?path=' + keyQ())).json().catch(() => null);
+    const dir = lr && lr.ok && lr.dir; if (!dir) return done('PC file server not reachable');
+    const NAME = 'pdshot.png', full = dir.replace(/[\\/]+$/, '') + '\\' + NAME;
+    toast('Grabbing PC clipboard image…');
+    const ps = "powershell -w hidden -sta -c \"$f='" + full + "';ri $f -ea 0;Add-Type -A System.Windows.Forms;$i=[Windows.Forms.Clipboard]::GetImage();if($i){$i.Save($f)}\"";
+    combo('MetaLeft', 'KeyR');
+    await new Promise(r => setTimeout(r, 700));
+    send({ t: 'type', bs: 0, ins: ps, enter: true, method: 'unicode', restore: false });   // direct keys: must NOT touch the PC clipboard
+    let blob = null;
+    for (let i = 0; i < 14 && !blob; i++) {
+      await new Promise(r => setTimeout(r, 600));
+      try { const r = await fetch(FILE_BASE() + '/download?path=' + encodeURIComponent(NAME) + keyQ() + '&t=' + Date.now()); if (r.ok) { const b = await r.blob(); if (b.size > 100) blob = b; } } catch {}
+    }
+    if (!blob) return done('No image found: snip first (Win+Shift+S), then tap again');
+    const url = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+    const b64 = String(url).split(',')[1] || '';
+    if (window.PDNative && PDNative.writeClipImage) { PDNative.writeClipImage(b64); }
+    else if (navigator.clipboard && window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    else return done('This phone/browser cannot copy images (use the PhoneDeck app)');
+    buzz(24); done('📸 Screenshot copied to phone clipboard');
+  } catch (e) { done('Screenshot failed'); }
+}
+$('#pvShot').addEventListener('click', shotToPhone);
 $('#pvSearch').addEventListener('click', () => { buzz(10); combo('MetaLeft', 'KeyS'); });
 let allMin = false;                                         // true after "minimize all": next tap brings the windows back
 const MIN_ICON = '<rect x="5" y="4" width="14" height="10" rx="2" opacity=".55"/><path d="M5 19h14" stroke-width="3"/>';
@@ -1589,13 +1721,15 @@ function showTab(name) {
   if ((name !== 'kb' && name !== 'num') || prev === 'type') resetKeyboardUI();
   if (name === 'type') buildType();
   updatePreviewVis();
+  if (!FLOAT) store.set('pd.tab', name);                     // remember the tab: reloads / reconnects stay here
 }
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
-$('#gear').addEventListener('click', () => { $('#settings').hidden = false; });
+$('#gear').addEventListener('click', () => { $('#settings').hidden = false; floatSync(); });
 $('#closeSettings').addEventListener('click', () => { $('#settings').hidden = true; });
 $('#reloadBtn').addEventListener('click', () => location.reload());
 
 async function goFullscreen() {
+  if (FLOAT) return;
   try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
 }
 $('#fsBtn').addEventListener('click', goFullscreen);
@@ -1621,6 +1755,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySetti
 
 /* ------------------------------------------------------------------ */
 applySettings(); syncInputs(); renderHist(); renderPreview(); keepAwake(); connect();
+{ const t = store.get('pd.tab', 'kb');                   // restore the last-used tab after a reload / reconnect
+  if (FLOAT) showTab('type'); else if (t !== 'kb' && document.querySelector('#tabs button[data-tab="' + t + '"]')) showTab(t); }
 })();
 </script>
 </body>

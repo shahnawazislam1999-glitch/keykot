@@ -5,6 +5,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# What the workflow may do with the repo: read the code only (the APK goes to Artifacts, which needs no extra permission)
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

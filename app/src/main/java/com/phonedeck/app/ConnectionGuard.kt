@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ConnectionGuard(ctx: Context, url: String, private val listener: Listener) {
 
+    companion object { private val live = java.util.concurrent.atomic.AtomicInteger(0) }
+
     enum class State { ONLINE, SLOW, OFFLINE, NO_NETWORK }
 
     /** Both callbacks arrive on the main thread. */
@@ -51,6 +53,7 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
+        live.incrementAndGet()
         registerNetworkCallback()
         acquireWifiLock()
         val t = Thread({ loop() }, "pd-guard")
@@ -65,7 +68,8 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
         callback = null
         try { wifiLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) { }
         wifiLock = null
-        try { cm?.bindProcessToNetwork(null) } catch (e: Exception) { }
+        // the floating keyboard service and the app each run a guard: only the LAST one to stop may release the network binding
+        if (live.decrementAndGet() <= 0) { try { cm?.bindProcessToNetwork(null) } catch (e: Exception) { } }
     }
 
     /** Check right now instead of waiting for the next tick. */

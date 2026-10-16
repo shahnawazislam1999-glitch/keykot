@@ -68,3 +68,10 @@ Needs the tablet and PC on the same network (hotspot, router, or USB tethering).
 - **Xiaomi Smart Pen mode** (✒): pen on the touchpad = left button held, so it draws/drags. 1:1 movement, all pen samples, One Euro smoothing (Pen smoothing slider), cursor follows the hovering pen, palm rejection while the pen is near, barrel button = right button. Tip: in Windows turn off *Enhance pointer precision* (Mouse settings) for exact 1:1 strokes.
 - **Gestures**: 3-finger tap = Win+Tab, 4-finger tap = Win+S (search). Can be turned off in Settings.
 - `PC/phone.html` is the updated page for the PC side (replace your phone.html with it).
+
+## Floating keyboard + mouse (Type tab) over other apps
+Gear > **🪟 Floating keyboard + mouse** > switch on. First time Android opens **Display over other apps**: allow PhoneDeck, come back, switch on again.
+The app goes to the background and the Type keyboard + mouse pad float above everything (also when PhoneDeck is minimised or closed from recents).
+- Window bar: drag **⠿** to move, **◢** corner to resize, **◐ slider** = opacity (20-100 %), **Adjust / Split / Reset** = same as the Type tab (move and resize every block), **▁** fold to the bar only, **✕** close. The notification has Stop / Open.
+- **Keep always active** button (Settings) = ignore battery optimisation, so Android does not stop the service. A foreground service, a CPU wake lock and the network binding keep the link alive with the screen dark.
+- The floating window keeps its own layout (separate from the Type tab). Needs a rebuilt APK (new permissions + FloatService).
