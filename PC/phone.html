@@ -106,7 +106,8 @@ body.nohandles .hbar{display:none}
 .tblk{position:absolute;container-type:size;display:flex;flex-direction:column;gap:var(--tg)}
 .tblk.ttop{flex-direction:row}
 .tblk.ttop .mpad{flex:6 1 0;min-width:0;font-size:clamp(10px,28cqh,13px)}
-.tblk.ttop .tk{font-size:clamp(10px,38cqh,22px)}
+.tkgrid{flex:2 1 0;min-width:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:var(--tg)}
+.tkgrid .tk{flex:none;font-size:clamp(10px,13cqh,20px)}
 .trow{display:flex;gap:var(--tg);flex:1 1 0;min-height:0}
 .tsp{flex:var(--w) 1 0px;min-width:0;pointer-events:none}
 .tk{position:relative;flex:var(--w) 1 0px;min-width:0;display:flex;align-items:center;justify-content:center;
@@ -418,7 +419,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 };
-const TGEO = () => ({ tTop: { x: 0.03, y: 0.02, w: 0.94, h: 0.2 }, tMain: { x: 0.03, y: 0.25, w: 0.94, h: 0.72 }, tL: { x: 0.02, y: 0.25, w: 0.46, h: 0.72 }, tR: { x: 0.52, y: 0.25, w: 0.46, h: 0.72 } });
+const TGEO = () => ({ tTop: { x: 0.03, y: 0.02, w: 0.94, h: 0.3 }, tMain: { x: 0.03, y: 0.35, w: 0.94, h: 0.62 }, tL: { x: 0.02, y: 0.35, w: 0.46, h: 0.62 }, tR: { x: 0.52, y: 0.35, w: 0.46, h: 0.62 } });
 const DEFAULTS = { pen: false, penSpeed: 1.5, penSmooth: 0.5, penHover: true, gest: true, tInd: true, tGap: 3, tSplit: false, ...TGEO(), sens: 1.6, scroll: 1.2, haptics: true, theme: 'dark', kbSize: 100, natural: true,
                    buttons: true, mbtns: true, method: 'paste', restoreClip: true, autoPaste: false, live: false, preview: true, numpad: true, mouse: true, handles: true, tabs: true, dragHold: 3000, tapGap: 200, prevH: 54, sideW: 0.36 };
 const S = { ...DEFAULTS, ...store.get('pd.settings', {}) };
@@ -829,7 +830,9 @@ const T_SYM = {
       [T_SPACE(2.5), T_ENTER(1.5)]]
 };
 const T_HND = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
-const tk = { layer: 'abc', shift: 0, shiftDown: false, used: false, t0: 0, lastTap: 0, ctrl: 0, ctrlDown: false, cused: false, ct0: 0 };   // shift: 0 off, 1 next key only, 2 caps lock
+const tk = { layer: 'abc', shift: 0, shiftDown: false, used: false, t0: 0, lastTap: 0, fnRow: false, mod: {} };
+const T_MOD = { CTRL: 'ControlLeft', WIN: 'MetaLeft', ALT: 'AltLeft' };   // latching modifiers on the top strip
+for (const m in T_MOD) tk.mod[m] = { armed: 0, down: false, used: false, t0: 0 };   // shift: 0 off, 1 next key only, 2 caps lock
 const tAct = new Map();                                    // pointerId -> {el, code, timer, iv, tmp}
 const tStage = $('#tStage');
 const tAdjOn = () => document.body.classList.contains('tadj');
@@ -860,8 +863,11 @@ function tPlace(blk) {
 }
 function mkTop() {                                         // Tab + Ctrl + mouse pad strip (built once, survives layer / split rebuilds)
   const blk = document.createElement('div'); blk.className = 'tblk ttop'; blk.dataset.g = 'tTop';
-  blk.appendChild(tkEl(TK('Tab', 'Tab', 1, { fn: 1 })));
-  blk.appendChild(tkEl(TK('CTRL', 'Ctrl', 1, { fn: 1 })));
+  const kg = document.createElement('div'); kg.className = 'tkgrid';
+  [TK('SHIFT', '⇧', 1, { fn: 1, aria: 'Shift' }), TK('WIN', 'Win', 1, { fn: 1 }),
+   TK('Tab', 'Tab', 1, { fn: 1 }), TK('CTRL', 'Ctrl', 1, { fn: 1 }),
+   TK('FNT', 'Fn', 1, { fn: 1, aria: 'Function keys F1-F12' }), TK('ALT', 'Alt', 1, { fn: 1 })].forEach(k => kg.appendChild(tkEl(k)));
+  blk.appendChild(kg);
   const mp = document.createElement('div'); mp.className = 'mpad';
   mp.innerHTML = '🖱 tap = click · 2 fingers = scroll · tap, tap+hold = drag<span class="dz"></span>';
   blk.appendChild(mp);
@@ -882,7 +888,9 @@ function buildType() {
     T_HND.forEach(m => { const h = document.createElement('div'); h.className = 'rh ' + m; blk.appendChild(h); });
     tStage.appendChild(blk); tPlace(blk);
   };
-  if (S.tSplit) { mk(lay.L, 'tL'); mk(lay.R, 'tR'); } else mk(lay.all, 'tMain');
+  const fk = (a, b) => { const r = []; for (let i = a; i <= b; i++) r.push(TK('F' + i, 'F' + i, 1, { fn: 1 })); return r; };
+  if (S.tSplit) { mk(tk.fnRow ? [fk(1, 6), ...lay.L] : lay.L, 'tL'); mk(tk.fnRow ? [fk(7, 12), ...lay.R] : lay.R, 'tR'); }
+  else mk(tk.fnRow ? [fk(1, 12), ...lay.all] : lay.all, 'tMain');
   refreshTypeLabels();
   return wasShift;
 }
@@ -890,12 +898,13 @@ function refreshTypeLabels() {
   const up = tk.shift > 0 || tk.shiftDown;
   tStage.querySelectorAll('.tk[data-lt]').forEach(el => { const t = up ? el.dataset.lt.toUpperCase() : el.dataset.lt; if (el.textContent !== t) el.textContent = t; });
   tStage.querySelectorAll('.tk[data-tc="SHIFT"]').forEach(el => { el.classList.toggle('lit', up); el.classList.toggle('lock', tk.shift === 2); });
-  tStage.querySelectorAll('.tk[data-tc="CTRL"]').forEach(el => el.classList.toggle('lit', tk.ctrl > 0 || tk.ctrlDown));
+  for (const m in T_MOD) tStage.querySelectorAll('.tk[data-tc="' + m + '"]').forEach(el => el.classList.toggle('lit', tk.mod[m].armed > 0 || tk.mod[m].down));
+  tStage.querySelectorAll('.tk[data-tc="FNT"]').forEach(el => el.classList.toggle('lit', tk.fnRow));
 }
 function typeReset() {
   for (const a of tAct.values()) { clearTimeout(a.timer); clearInterval(a.iv); }
   tAct.clear();
-  tk.shift = 0; tk.shiftDown = false; tk.used = false; tk.ctrl = 0; tk.ctrlDown = false; tk.cused = false;
+  tk.shift = 0; tk.shiftDown = false; tk.used = false; for (const m in T_MOD) Object.assign(tk.mod[m], { armed: 0, down: false, used: false });
   tStage.querySelectorAll('.tk.down').forEach(el => el.classList.remove('down'));
   refreshTypeLabels();
 }
@@ -919,19 +928,19 @@ function typeShiftUp(a) {
   refreshTypeLabels();
 }
 
-/* Ctrl: tap = held for the next key only (Ctrl+C, Ctrl+Tab...), hold = Ctrl while held (works with two thumbs) */
-function typeCtrlDown(a) {
-  const now = performance.now();
-  if (tk.ctrl === 1) { tk.ctrl = 0; sendKey('ControlLeft', false); a.ignore = true; refreshTypeLabels(); return; }   // tap again: cancel
-  tk.ctrlDown = true; tk.cused = false; tk.ct0 = now;
-  if (!held.has('ControlLeft')) sendKey('ControlLeft', true);
+/* Ctrl / Win / Alt: tap = held for the next key only (Ctrl+C, Win+E, Alt+Tab...), hold = held while pressed (two thumbs) */
+function typeModDown(a) {
+  const m = tk.mod[a.code], k = T_MOD[a.code];
+  if (m.armed) { m.armed = 0; sendKey(k, false); a.ignore = true; refreshTypeLabels(); return; }   // tap again: cancel
+  m.down = true; m.used = false; m.t0 = performance.now();
+  if (!held.has(k)) sendKey(k, true);
   refreshTypeLabels();
 }
-function typeCtrlUp(a) {
+function typeModUp(a) {
   if (a.ignore) return;
-  tk.ctrlDown = false;
-  if (!tk.cused && performance.now() - tk.ct0 < 400) tk.ctrl = 1;       // quick tap: keep Ctrl for the next key
-  else sendKey('ControlLeft', false);
+  const m = tk.mod[a.code]; m.down = false;
+  if (!m.used && performance.now() - m.t0 < 400) m.armed = 1;            // quick tap: keep it for the next key
+  else sendKey(T_MOD[a.code], false);
   refreshTypeLabels();
 }
 
@@ -943,18 +952,19 @@ tStage.addEventListener('pointerdown', e => {
   const code = el.dataset.tc;
   buzz(el.classList.contains('home') && S.tInd ? 24 : 10);       // F and J give a longer buzz so the fingers can find the home row
   if (code === 'LAYER') { tk.layer = tk.layer === 'abc' ? 'sym' : 'abc'; buildType(); return; }
+  if (code === 'FNT') { tk.fnRow = !tk.fnRow; buildType(); return; }               // show / hide the F1-F12 row
   el.classList.add('down');
   const a = { el, code, timer: 0, iv: 0, tmp: false, once: false };
   tAct.set(e.pointerId, a);
   if (code === 'SHIFT') { typeShiftDown(a); return; }
-  if (code === 'CTRL') { typeCtrlDown(a); return; }
+  if (T_MOD[code]) { typeModDown(a); return; }
   if (code === 'GLOBE') {                                         // language switch on Windows = Win+Space
     a.once = true; sendKey('MetaLeft', true);
     setTimeout(() => { tapKey('Space'); setTimeout(() => sendKey('MetaLeft', false), 40); }, 25);
     return;
   }
   if (el.dataset.sh === '1' && !(tk.shift > 0 || tk.shiftDown)) { sendKey('ShiftLeft', true); a.tmp = true; }   // symbols like ! @ # need Shift
-  tk.used = true; tk.cused = true;
+  tk.used = true; for (const m in T_MOD) tk.mod[m].used = true;
   sendKey(code, true);
   trackKey(code);
   a.timer = setTimeout(() => { a.iv = setInterval(() => { send({ t: 'key', code, down: true }); trackKey(code); }, 35); }, 380);   // hold = repeat
@@ -965,12 +975,12 @@ function typeRelease(e) {
   clearTimeout(a.timer); clearInterval(a.iv);
   a.el.classList.remove('down');
   if (a.code === 'SHIFT') { typeShiftUp(a); return; }
-  if (a.code === 'CTRL') { typeCtrlUp(a); return; }
+  if (T_MOD[a.code]) { typeModUp(a); return; }
   if (a.once) return;
   sendKey(a.code, false);
   if (a.tmp) sendKey('ShiftLeft', false);
   if (tk.shift === 1 && !tk.shiftDown) { tk.shift = 0; sendKey('ShiftLeft', false); refreshTypeLabels(); }   // "next key only" ends here
-  if (tk.ctrl === 1 && !tk.ctrlDown) { tk.ctrl = 0; sendKey('ControlLeft', false); refreshTypeLabels(); }
+  for (const m in T_MOD) { const x = tk.mod[m]; if (x.armed && !x.down) { x.armed = 0; sendKey(T_MOD[m], false); refreshTypeLabels(); } }
 }
 addEventListener('pointerup', typeRelease);
 addEventListener('pointercancel', typeRelease);
