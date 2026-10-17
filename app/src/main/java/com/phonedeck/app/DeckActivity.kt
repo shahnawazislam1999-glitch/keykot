@@ -75,6 +75,10 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     private var attempt = 0
     private var bannerProblem = false
     private var pausedAt = 0L
+    // hotspot switching: finds the PC by itself when its address changed
+    private val finder: AutoFinder by lazy {
+        AutoFinder(this, { url }, { ip -> switchTo(ip, true) }, { msg -> bannerProblem = true; showBanner(msg, R.color.warn) })
+    }
 
     // downloads
     private lateinit var downloader: Downloader
@@ -261,6 +265,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     private fun showError(text: String, auto: Boolean) {
         errorText.text = text
         errorInfo.text = if (auto) "Retrying automatically…  (attempt " + (attempt + 1) + ")" else ""
+        if (auto) finder.outage()            // the page cannot load: maybe the PC moved to a new address (new hotspot), look for it
         errorBox.visibility = View.VISIBLE
         ui.removeCallbacks(retryRun)
         if (auto) ui.postDelayed(retryRun, minOf(1500L + attempt * 700L, 5000L))
@@ -275,23 +280,30 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     override fun onState(state: ConnectionGuard.State, rttMs: Int) {
         when (state) {
             ConnectionGuard.State.ONLINE -> {
+                finder.reset()
                 if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
             }
             ConnectionGuard.State.SLOW -> {
+                finder.reset()
                 if (bannerProblem) { bannerProblem = false; banner.visibility = View.GONE }
             }
             ConnectionGuard.State.OFFLINE -> {
                 bannerProblem = true
-                showBanner("⚠ Lost the PC - reconnecting…", R.color.warn)
+                showBanner(finder.status ?: "⚠ Lost the PC - reconnecting…", R.color.warn)
+                finder.outage()
             }
             ConnectionGuard.State.NO_NETWORK -> {
+                finder.reset()
                 bannerProblem = true
                 showBanner("⚠ No network - join the PC's Wi-Fi / hotspot", R.color.bad)
             }
         }
     }
 
+    override fun onNetworkChanged() { finder.networkChanged() }
+
     override fun onRecovered(outageMs: Long) {
+        finder.reset()
         bannerProblem = false
         showBanner("✔ PC is back", R.color.okbg)
         ui.postDelayed({ if (!bannerProblem) banner.visibility = View.GONE }, 1800)
@@ -305,16 +317,26 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     }
 
     private fun findPc() {
-        Discovery.showFindDialog(this, LinkUtil.portOf(url)) { ip ->
-            val nu = LinkUtil.withHost(url, ip)
-            url = nu
-            host = ip
-            Prefs.of(this).edit().putString("link", nu).apply()
-            LinkHistory.add(this, nu)
-            attempt = 0; loadFailed = false; fatalError = false
-            errorBox.visibility = View.GONE
-            startGuard()
-            web.loadUrl(nu)
+        Discovery.showFindDialog(this, LinkUtil.portOf(url), host, Uri.parse(url).getQueryParameter("key") ?: "") { ip -> switchTo(ip, false) }
+    }
+
+    /** The PC now lives at [ip]: rewrite the saved link (same port and key), reload, and tell the floating keyboard. */
+    private fun switchTo(ip: String, auto: Boolean) {
+        val nu = LinkUtil.withHost(url, ip)
+        url = nu
+        host = ip
+        Prefs.of(this).edit().putString("link", nu).apply()
+        LinkHistory.add(this, nu)
+        attempt = 0; loadFailed = false; fatalError = false
+        errorBox.visibility = View.GONE
+        finder.reset()
+        startGuard()
+        web.loadUrl(nu)
+        FloatService.relink(this, nu)
+        if (auto) {
+            bannerProblem = false
+            showBanner("✔ PC moved to $ip - reconnected", R.color.okbg)
+            ui.postDelayed({ if (!bannerProblem) banner.visibility = View.GONE }, 2500)
         }
     }
 
@@ -481,7 +503,10 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             "Find PC on the network…",
             "Test key detection",
             "Learned words: " + words.learnedCount() + "  (tap to clear)",
-            "Change link / disconnect"
+            "Change link / disconnect",
+            "Floating keyboard + mouse: " + (if (FloatService.running) "ON (tap to turn off)" else "OFF (tap to turn on)"),
+            "Floating: allow Display over other apps…",
+            "Floating: keep always active (battery)…"
         )
         AlertDialog.Builder(this)
             .setTitle("PhoneDeck")
@@ -498,6 +523,9 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
                     8 -> doAction("testkeys")
                     9 -> doAction("clearwords")
                     10 -> doAction("disconnect")
+                    11 -> toggleFloat()
+                    12 -> openOverlaySettings()
+                    13 -> openBatterySettings()
                 }
             }
             .setNegativeButton("Close", null)
@@ -536,6 +564,22 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     }
 
     // ==== ANCHOR:DECK_FLOAT ====
+    private fun toggleFloat() {
+        if (FloatService.running) { FloatService.stop(this); return }
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Allow \"Display over other apps\" for PhoneDeck, then turn it on again", Toast.LENGTH_LONG).show()
+            openOverlaySettings(); return
+        }
+        var asked = false
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 71)
+            asked = true
+        }
+        FloatService.start(this, url)
+        if (!asked) moveTaskToBack(true)
+    }
+
     private fun openOverlaySettings() {
         try {
             startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))

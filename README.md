@@ -75,3 +75,12 @@ The app goes to the background and the Type keyboard + mouse pad float above eve
 - Window bar: drag **⠿** to move, **◢** corner to resize, **◐ slider** = opacity (20-100 %), **Adjust / Split / Reset** = same as the Type tab (move and resize every block), **▁** fold to the bar only, **✕** close. The notification has Stop / Open.
 - **Keep always active** button (Settings) = ignore battery optimisation, so Android does not stop the service. A foreground service, a CPU wake lock and the network binding keep the link alive with the screen dark.
 - The floating window keeps its own layout (separate from the Type tab). Needs a rebuilt APK (new permissions + FloatService).
+
+## v2.4: switching between hotspots / Wi-Fi networks
+- **Automatic Find PC.** When the PC cannot be reached for ~4 s (about 1 s after Android reports a different network), the app searches the networks the device is on now and reconnects by itself. The banner says "PC moved to <ip> - reconnected". Nothing to tap.
+- **Real PhoneDeck check.** Only a device that answers like PhoneDeck counts (not any device with port 8080 open). The secret key is sent only to a device that already proved to be PhoneDeck. If the PC is found but the saved key is old, the banner says so.
+- **Never mobile data.** Every search packet is bound to the Wi-Fi / USB-tether / Ethernet network itself, and while the PC address is unknown the app still prefers the local Wi-Fi over mobile data (a hotspot without internet used to lose against mobile data).
+- **Smarter order.** The old PC address and its neighbours are tried first, then the rest of the subnet.
+- **Floating keyboard follows.** It updates its link and reconnects too (it also searches by itself when the app is in the background).
+- Manual **Find PC** (menu / connect screen) uses the same checks and marks results whose key is old.
+- Code: `Discovery.kt` (DISCOVERY_SCAN, `AutoFinder`), `ConnectionGuard.kt` (GUARD_BIND, `onNetworkChanged`), `DeckActivity.kt` (`switchTo`), `FloatService.kt` (`relinkTo`).

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
 import android.net.wifi.WifiManager
@@ -37,6 +38,8 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
     interface Listener {
         fun onState(state: State, rttMs: Int)
         fun onRecovered(outageMs: Long)
+        /** Android reports a different network (e.g. you joined another phone's hotspot). Optional. */
+        fun onNetworkChanged() {}
     }
 
     private val app = ctx.applicationContext
@@ -84,6 +87,7 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
                 c.getLinkProperties(network)?.let { nets[network] = it }
                 rebind()
                 pokeQ.offer(1)
+                ui.post { if (running.get()) listener.onNetworkChanged() }
             }
 
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
@@ -95,6 +99,7 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
                 nets.remove(network)
                 rebind()
                 pokeQ.offer(1)
+                ui.post { if (running.get()) listener.onNetworkChanged() }
             }
         }
         try {
@@ -125,6 +130,17 @@ class ConnectionGuard(ctx: Context, url: String, private val listener: Listener)
                         val mask = (0xFFFFFFFFL shl (32 - p)) and 0xFFFFFFFFL
                         if ((ipToLong(a) and mask) == (h and mask)) target = n
                     }
+                }
+            }
+        }
+        if (target == null) {
+            // The PC's address is on none of our networks (e.g. right after you switched hotspot, before the new address is found).
+            // Still prefer the local Wi-Fi / Ethernet over mobile data: Android would otherwise send PC traffic over the cellular network.
+            for ((n, _) in nets) {
+                val caps = try { c.getNetworkCapabilities(n) } catch (e: Exception) { null }
+                if (caps != null && (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                    target = n
+                    break
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.phonedeck.app
 import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -118,7 +119,7 @@ class ConnectActivity : ComponentActivity() {
     private fun findPc() {
         val base = LinkUtil.parse(input.text.toString())
         val port = if (base != null) LinkUtil.portOf(base) else 8080
-        Discovery.showFindDialog(this, port) { ip ->
+        Discovery.showFindDialog(this, port, if (base != null) Uri.parse(base).host else null, if (base != null) (Uri.parse(base).getQueryParameter("key") ?: "") else "") { ip ->
             val nu = if (base != null) LinkUtil.withHost(base, ip) else "http://" + ip + ":" + port + "/"
             input.setText(nu)
             say("Found the PC at " + ip + ". Tap Connect.", true)

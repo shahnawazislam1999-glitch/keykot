@@ -52,6 +52,7 @@ class FloatService : Service(), ConnectionGuard.Listener {
     companion object {
         @Volatile var running = false
         const val ACTION_STOP = "com.phonedeck.app.FLOAT_STOP"
+        const val ACTION_RELINK = "com.phonedeck.app.FLOAT_RELINK"
         private const val CHANNEL = "pd_float"
         private const val NID = 41
 
@@ -59,6 +60,11 @@ class FloatService : Service(), ConnectionGuard.Listener {
             ctx.startForegroundService(Intent(ctx, FloatService::class.java).putExtra("url", url))
         }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, FloatService::class.java)) }
+        /** The PC moved to another address (new hotspot): point the running floating keyboard at it. */
+        fun relink(ctx: Context, url: String) {
+            if (!running) return
+            ctx.startForegroundService(Intent(ctx, FloatService::class.java).setAction(ACTION_RELINK).putExtra("url", url))
+        }
     }
 
     private lateinit var wm: WindowManager
@@ -75,6 +81,21 @@ class FloatService : Service(), ConnectionGuard.Listener {
     private var collapsed = false
     private var savedH = 0
     private val retry = Runnable { web?.loadUrl(floatUrl) }
+    private val finder: AutoFinder by lazy {
+        AutoFinder(this, { base }, { ip -> relinkTo(LinkUtil.withHost(base, ip)) }, { })
+    }
+
+    private fun relinkTo(u: String) {
+        if (u == base) return
+        base = u
+        floatUrl = Uri.parse(u).buildUpon().appendQueryParameter("float", "1").build().toString()
+        Prefs.of(this).edit().putString("link", u).apply()
+        LinkHistory.add(this, u)
+        finder.reset()
+        guard?.stop()
+        guard = ConnectionGuard(this, base, this).also { it.start() }
+        web?.loadUrl(floatUrl)
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun scrW() = resources.displayMetrics.widthPixels
@@ -86,6 +107,10 @@ class FloatService : Service(), ConnectionGuard.Listener {
         // Android requires startForeground() right after startForegroundService(), whatever happens next
         goForeground(intent?.getStringExtra("url") ?: Prefs.of(this).getString("link", null) ?: "")
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_RELINK && root != null) {
+            intent.getStringExtra("url")?.let { relinkTo(it) }
+            return START_STICKY
+        }
         val u = intent?.getStringExtra("url") ?: Prefs.of(this).getString("link", null) ?: ""
         if (u.isEmpty() || !Settings.canDrawOverlays(this)) { stopSelf(); return START_NOT_STICKY }
         if (root == null) {
@@ -239,7 +264,7 @@ class FloatService : Service(), ConnectionGuard.Listener {
         }
         val host = Uri.parse(base).host
         wv.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.host != host
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.host != Uri.parse(base).host
             override fun onPageStarted(view: WebView, u: String?, favicon: Bitmap?) { ui.removeCallbacks(retry) }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
@@ -292,8 +317,14 @@ class FloatService : Service(), ConnectionGuard.Listener {
     }
 
     // ---------------------------------------------------------------- connection guard
-    override fun onState(state: ConnectionGuard.State, rttMs: Int) {}
-    override fun onRecovered(outageMs: Long) { if (outageMs > 6000) web?.loadUrl(floatUrl) }
+    override fun onState(state: ConnectionGuard.State, rttMs: Int) {
+        when (state) {
+            ConnectionGuard.State.OFFLINE -> finder.outage()
+            else -> finder.reset()
+        }
+    }
+    override fun onNetworkChanged() { finder.networkChanged() }
+    override fun onRecovered(outageMs: Long) { finder.reset(); if (outageMs > 6000) web?.loadUrl(floatUrl) }
 
     override fun onDestroy() {
         running = false
