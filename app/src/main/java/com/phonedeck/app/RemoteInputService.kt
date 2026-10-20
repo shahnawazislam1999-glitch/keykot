@@ -415,6 +415,8 @@ class RemoteInputService : AccessibilityService() {
     private fun ic(): InputMethod.AccessibilityInputConnection? =
         if (Build.VERSION.SDK_INT >= 33) pcIme?.currentInputConnection else null
 
+    private val CTRL = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+
     private fun sendKey(c: InputMethod.AccessibilityInputConnection, code: Int, meta: Int = 0) {
         val t = SystemClock.uptimeMillis()
         c.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, meta))
@@ -535,19 +537,17 @@ class RemoteInputService : AccessibilityService() {
         val c = ic()
         if (c != null) {
             when (k) {
-                "selall" -> { if (!c.performContextMenuAction(android.R.id.selectAll)) sendKey(c, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON); return }
+                "selall" -> { sendKey(c, KeyEvent.KEYCODE_A, CTRL); return }
                 "paste" -> {
                     val pc = clipFromPc
                     if (pc != null && !clipDirty) c.commitText(pc, 1, null)
-                    else if (!c.performContextMenuAction(android.R.id.paste)) sendKey(c, KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON)
+                    else sendKey(c, KeyEvent.KEYCODE_V, CTRL)
                     return
                 }
                 "copy", "cut" -> {
                     val sel = icSelected(c)
                     selfClipAt = System.currentTimeMillis()
-                    val id = if (k == "cut") android.R.id.cut else android.R.id.copy
-                    if (!c.performContextMenuAction(id))
-                        sendKey(c, if (k == "cut") KeyEvent.KEYCODE_X else KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON)
+                    sendKey(c, if (k == "cut") KeyEvent.KEYCODE_X else KeyEvent.KEYCODE_C, CTRL)
                     if (sel != null) { clipFromPc = null; pushClip(sel) } else clipDirty = true
                     return
                 }
