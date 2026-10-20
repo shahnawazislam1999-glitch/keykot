@@ -11,8 +11,8 @@ android {
         applicationId = "com.phonedeck.app"
         minSdk = 29          // Android 10+
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.7.2"
+        versionCode = 10
+        versionName = "2.8.0"
     }
 
     buildTypes {

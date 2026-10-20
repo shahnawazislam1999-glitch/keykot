@@ -94,9 +94,18 @@ class ConnectActivity : ComponentActivity() {
             say(getString(R.string.bad_link), false)
             return
         }
-        Prefs.of(this).edit().putString("link", url).putString("mode", "wifi").apply()
+        val pr = Prefs.of(this)
+        pr.edit().putString("link", url).putString("mode", "wifi").apply()
         LinkHistory.add(this, url)
         input.setText(url)
+        // connect once, never again: the background link starts now and from then on after every reboot / network change
+        if (!pr.contains("share_on")) pr.edit().putBoolean("share_on", true).apply()
+        if (KeepAlive.wanted(this)) {
+            KeepAlive.start(this)
+            LinkHub.ensure(this)
+            LinkHub.kickNow()
+            Background.askEssentials(this)
+        }
         say("Connecting…", true)
         startActivity(Intent(this, DeckActivity::class.java).putExtra("url", url))
     }

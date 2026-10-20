@@ -19,9 +19,10 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 
-/** Settings screen for "PC mouse on this tablet" (built in code, no layout file). */
+/** Settings screen for the background PC link: mouse, keyboard, clipboard and dragged files (built in code, no layout file). */
 class MouseShareActivity : Activity() {
     private lateinit var status: TextView
+    private lateinit var checks: TextView
     private val ui = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() { refresh(); ui.postDelayed(this, 1000) }
@@ -48,18 +49,20 @@ class MouseShareActivity : Activity() {
         val sv = ScrollView(this).apply { setBackgroundColor(0xFF0F1115.toInt()); addView(root) }
         setContentView(sv)
 
-        root.addView(label("PC mouse on this tablet", 22f))
+        root.addView(label("PC link on this tablet", 22f))
         root.addView(label("Push the PC mouse off the PC screen edge and the pointer appears here. " +
             "Your PC keyboard types here too while the pointer is on the tablet. " +
-            "SCROLL LOCK on the PC always brings control back.", 13f, 0xFF8B93A5.toInt()))
+            "SCROLL LOCK on the PC always brings control back.\n" +
+            "Grab a file in Explorer or on the Desktop, drag it against that screen edge and let go on the tablet: " +
+            "the file is saved in Downloads/PhoneDeck.", 13f, 0xFF8B93A5.toInt()))
 
         status = label("", 14f, 0xFF4DA3FF.toInt())
         root.addView(status)
 
         val sw = Switch(this).apply {
-            text = "Use the PC mouse on this tablet"
+            text = "Keep the PC link running in the background (always on)"
             setTextColor(0xFFE8EBF2.toInt())
-            isChecked = p.getBoolean("share_on", false)
+            isChecked = KeepAlive.wanted(this@MouseShareActivity)
             setOnCheckedChangeListener { _, on ->
                 p.edit().putBoolean("share_on", on).apply()
                 if (on) {
@@ -69,10 +72,28 @@ class MouseShareActivity : Activity() {
                     KeepAlive.start(this@MouseShareActivity)
                 } else KeepAlive.stop(this@MouseShareActivity)
                 RemoteInputService.applyPrefsNow()
+                if (on) LinkHub.ensure(this@MouseShareActivity) else LinkHub.stop()
                 refresh()
             }
         }
         root.addView(sw)
+
+        val fd = Switch(this).apply {
+            text = "Drag files from the PC to this tablet"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("filedrag", true)
+            setOnCheckedChangeListener { _, on ->
+                p.edit().putBoolean("filedrag", on).apply()
+                LinkHub.sendHello()
+            }
+        }
+        root.addView(fd)
+
+        root.addView(label("Background checklist (tap a line's button to fix it)"))
+        checks = label("", 13f, 0xFFE8EBF2.toInt())
+        root.addView(checks)
+        root.addView(button("Fix everything, step by step") { fixNext() })
+        root.addView(button("Reconnect now") { LinkHub.kickNow(); refresh() })
 
         root.addView(label("1. Allow the accessibility service (needed to click and type for you)"))
         root.addView(button("Open Accessibility settings") {
@@ -84,30 +105,24 @@ class MouseShareActivity : Activity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         })
 
-        root.addView(label("2. Keep it running forever (Xiaomi / HyperOS)"))
-        root.addView(button("Battery: allow always active") {
-            try {
-                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-            } catch (e: Exception) {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        root.addView(label("2. Keep it running forever (" + Background.manufacturer() + ")"))
+        root.addView(button("Battery: allow always active") { Background.requestBattery(this) })
+        root.addView(button("Notifications") { Background.requestNotifications(this) })
+        root.addView(button("Show over other apps") { Background.requestOverlay(this) })
+        root.addView(button(Background.manufacturer() + ": autostart / background settings") {
+            if (!Background.openAutostart(this)) {
+                android.widget.Toast.makeText(this, "No special screen found: set Battery to \"No restrictions\" in App info.",
+                    android.widget.Toast.LENGTH_LONG).show()
             }
         })
-        root.addView(button("Xiaomi: Autostart settings") {
-            val tries = listOf(
-                android.content.ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
-                android.content.ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings"))
-            var ok = false
-            for (c in tries) {
-                try { startActivity(Intent().setComponent(c)); ok = true; break } catch (e: Exception) { }
-            }
-            if (!ok) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        })
-        root.addView(label("Also: in Recents long-press PhoneDeck and tap the lock icon; in App info set Battery saver to \"No restrictions\". " +
-            "A permanent notification keeps the link alive: do not hide it.", 12f, 0xFF8B93A5.toInt()))
+        root.addView(label("Also: in Recents long-press PhoneDeck and tap the lock icon; in App info set Battery saver to \"No restrictions\" " +
+            "and allow Autostart. The permanent notification keeps the link alive: do not hide it. " +
+            "After this, closing or swiping the app away does not stop the link.", 12f, 0xFF8B93A5.toInt()))
 
         root.addView(label("3. Connect to the PC"))
-        root.addView(label("Uses the same link as the keyboard screen. Connect there once (Paste & Connect) so the link is saved; " +
-            "this feature then connects by itself in the background.", 12f, 0xFF8B93A5.toInt()))
+        root.addView(label("Connect once with Paste & Connect: the link is saved and this tablet then connects by itself, " +
+            "also after a reboot. If you switch to another phone's hotspot it searches for the PC at once and follows it. " +
+            "Run start-lan.bat on the PC once so it is reachable.", 12f, 0xFF8B93A5.toInt()))
 
         root.addView(label("4. Which PC screen edge leads to the tablet?"))
         val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
@@ -154,13 +169,31 @@ class MouseShareActivity : Activity() {
     }
 
     private fun refresh() {
-        val on = Prefs.of(this).getBoolean("share_on", false)
-        val svc = RemoteInputService.instance
+        val on = KeepAlive.wanted(this)
         status.text = when {
-            !a11yOn() && svc == null -> "● Accessibility service is OFF (step 1)"
-            !on -> "● Service is on, feature switched off"
-            svc?.isLinked == true -> "● Connected to the PC: push the mouse to the PC screen edge"
-            else -> "● Looking for the PC… (is PhoneDeck running on the PC? is the link saved?)"
+            !on -> "● Background link is switched off"
+            LinkHub.connected && !a11yOn() -> "● Connected to the PC. Files work; switch on the accessibility service (step 1) to use the mouse"
+            LinkHub.connected -> "● Connected to the PC: push the mouse to the PC screen edge"
+            else -> "● " + LinkHub.statusText(this)
+        }
+        checks.text = Background.checklist(this).joinToString("\n") { (if (it.ok) "\u2714  " else "\u2718  ") + it.label }
+    }
+
+    /** Opens the first setting that is still missing (call again after coming back). */
+    private fun fixNext() {
+        val missing = Background.checklist(this).firstOrNull { !it.ok }
+        if (missing == null) {
+            android.widget.Toast.makeText(this, "Everything is set. Last tip: allow Autostart for " + Background.manufacturer() + ".",
+                android.widget.Toast.LENGTH_LONG).show()
+            Background.openAutostart(this)
+            return
+        }
+        when (missing.fix) {
+            "battery" -> Background.requestBattery(this)
+            "notify" -> Background.requestNotifications(this)
+            "a11y" -> Background.openAccessibility(this)
+            "overlay" -> Background.requestOverlay(this)
+            else -> startActivity(Intent(this, ConnectActivity::class.java))
         }
     }
 

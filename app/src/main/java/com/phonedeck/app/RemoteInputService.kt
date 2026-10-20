@@ -10,10 +10,6 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.annotation.RequiresApi
@@ -35,7 +31,8 @@ import kotlin.math.hypot
 
 /**
  * Lets the PC's mouse and keyboard control this tablet.
- *  - The PC pushes events over [TabletLink]; this service draws a pointer (overlay) and performs them
+ *  - The PC pushes events over the link owned by [LinkHub] (it keeps running without this service);
+ *    this service draws a pointer (overlay) and performs them
  *    with accessibility gestures / actions (no root, no ADB).
  *  - Mouse: move = pointer, left = tap / long-press / drag, wheel = swipe, right = Back, middle = Home,
  *    side buttons = Back / Recents.
@@ -51,7 +48,6 @@ class RemoteInputService : AccessibilityService() {
     }
 
     private val ui = Handler(Looper.getMainLooper())
-    private var link: TabletLink? = null
     private var wm: WindowManager? = null
     private var cm: ClipboardManager? = null
     private var cursor: CursorView? = null
@@ -92,53 +88,12 @@ class RemoteInputService : AccessibilityService() {
         if (System.currentTimeMillis() - selfClipAt > 1500) clipDirty = true
     }
 
-    val isLinked: Boolean get() = link?.connected == true
+    val isLinked: Boolean get() = LinkHub.connected
 
     // ---------------------------------------------------------------- keep-alive / reconnect
-    private var lastBeat = 0L
-    private var netCb: ConnectivityManager.NetworkCallback? = null
-    private val finder: AutoFinder by lazy {
-        AutoFinder(this, { Prefs.of(this).getString("link", "") ?: "" }, { ip ->
-            val cur = Prefs.of(this).getString("link", "") ?: ""
-            if (cur.isNotEmpty()) {
-                val u = LinkUtil.withHost(cur, ip)
-                Prefs.of(this).edit().putString("link", u).apply()
-                LinkHistory.add(this, u)
-                link?.kick()
-            }
-        }, { })
-    }
-    private val selfBeat = object : Runnable {
-        override fun run() { heartbeat(); ui.postDelayed(this, 2000) }
-    }
-
-    /** Called every ~2 s (by [KeepAliveService] and by our own timer): ping, reconnect, find the PC if it moved. */
-    fun heartbeat() {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastBeat < 1500L) return
-        lastBeat = now
-        val l = link ?: return
-        if (!Prefs.of(this).getBoolean("share_on", false)) return
-        l.tick()
-        if (l.connected) finder.reset() else finder.outage()
-    }
-
-    private fun registerNet() {
-        if (netCb != null) return
-        try {
-            val c = getSystemService(ConnectivityManager::class.java)
-            val cb = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    val caps = c.getNetworkCapabilities(network) ?: return
-                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
-                        ui.post { finder.networkChanged(); if (link?.connected != true) link?.kick() }
-                    }
-                }
-            }
-            c.registerNetworkCallback(NetworkRequest.Builder().build(), cb)
-            netCb = cb
-        } catch (e: Exception) { }
-    }
+    // The link itself (connect, reconnect, hotspot changes, heartbeat) lives in [LinkHub]; nothing to do here.
+    /** Kept for old callers: the heartbeat is [LinkHub]'s job now. */
+    fun heartbeat() { LinkHub.heartbeat() }
 
     // ---------------------------------------------------------------- lifecycle
     override fun onServiceConnected() {
@@ -148,10 +103,8 @@ class RemoteInputService : AccessibilityService() {
         cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         try { cm?.addPrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
         refreshScreen()
-        registerNet()
-        ui.removeCallbacks(selfBeat)
-        ui.postDelayed(selfBeat, 2000)
         applyPrefs()
+        LinkHub.onInputServiceChanged()      // the PC may now show a pointer here
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -160,7 +113,7 @@ class RemoteInputService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         refreshScreen()
-        if (link?.connected == true) sendHello()
+        if (LinkHub.connected) sendHello()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -175,29 +128,28 @@ class RemoteInputService : AccessibilityService() {
 
     private fun shutdown() {
         exitRemote()
-        ui.removeCallbacks(selfBeat)
-        try { netCb?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (e: Exception) { }
-        netCb = null
-        link?.stop()
-        link = null
+        hideDragChip()
         try { cm?.removePrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
         instance = null
+        LinkHub.onInputServiceChanged()      // the PC must stop moving its pointer over here
     }
 
     fun applyPrefs() {
         val p = Prefs.of(this)
         gain = p.getFloat("mouse_gain", 1.6f)
-        if (p.getBoolean("share_on", false)) {
-            val l = link ?: TabletLink(this, ui, { onMsg(it) }, { onLinkState(it) }).also { link = it }
-            l.start()
-            if (l.connected) sendHello()
+        if (KeepAlive.wanted(this)) {
             KeepAlive.start(this)
+            LinkHub.ensure(this)
+            if (LinkHub.connected) sendHello()
         } else {
             exitRemote()
-            link?.stop()
+            LinkHub.stop()
             KeepAlive.stop(this)
         }
     }
+
+    /** Real screen size in pixels (the PC needs it to place the pointer). */
+    fun screenSize(): Pair<Int, Int> { refreshScreen(); return Pair(sw, sh) }
 
     @Suppress("DEPRECATION")
     private fun refreshScreen() {
@@ -206,19 +158,17 @@ class RemoteInputService : AccessibilityService() {
         if (dm.widthPixels > 0 && dm.heightPixels > 0) { sw = dm.widthPixels; sh = dm.heightPixels }
     }
 
-    private fun sendHello() {
-        refreshScreen()
-        val p = Prefs.of(this)
-        link?.send(JSONObject().put("t", "hello").put("w", sw).put("h", sh))
-        link?.send(JSONObject().put("t", "cfg").put("edge", p.getString("pc_edge", "right"))
-            .put("on", p.getBoolean("share_on", false)))
-    }
+    private fun sendHello() { refreshScreen(); LinkHub.sendHello() }
 
-    private fun onLinkState(connected: Boolean) {
-        if (connected) sendHello() else exitRemote()
+    /** [LinkHub] reports the link going up / down (it already sent the hello when it came up). */
+    fun onLinkState(connected: Boolean) {
+        if (!connected) exitRemote()
     }
 
     // ---------------------------------------------------------------- messages from the PC
+    /** Pointer / keyboard / clipboard messages forwarded by [LinkHub] (file messages never come here). */
+    fun onHubMessage(o: JSONObject) { onMsg(o) }
+
     private fun onMsg(o: JSONObject) {
         when (o.optString("t")) {
             "enter" -> enter(o.optString("edge", "left"), o.optDouble("f", 0.5).toFloat())
@@ -253,11 +203,13 @@ class RemoteInputService : AccessibilityService() {
         remote = false
         cancelDrag()
         hideCursor()
+        hideDragChip()
+        FileReceiver.onDragEnd(this)         // files carried over but not released: forget them
     }
 
     private fun leave() {
         val f = if (peerEdge == "left" || peerEdge == "right") cy / sh else cx / sw
-        link?.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
+        LinkHub.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
         exitRemote()
         if (clipDirty) {
             val t = readClipSafe()
@@ -605,7 +557,7 @@ class RemoteInputService : AccessibilityService() {
         clipDirty = false
         if (t.isEmpty() || t == lastSentClip) return
         lastSentClip = t
-        link?.send(JSONObject().put("t", "clip").put("text", t.take(100_000)))
+        LinkHub.send(JSONObject().put("t", "clip").put("text", t.take(100_000)))
     }
 
     /** Called by [ClipReadActivity] (it briefly has focus, so Android lets it read the clipboard). */
@@ -635,6 +587,61 @@ class RemoteInputService : AccessibilityService() {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         lp.x = cx.toInt(); lp.y = cy.toInt()
         try { wm?.updateViewLayout(v, lp) } catch (e: Exception) { }
+        moveDragChip()
+    }
+
+    // ---------------------------------------------------------------- the chip that follows the pointer while files are carried
+    private var chip: ChipView? = null
+    private var chipShown = false
+
+    /** [text] = what to show ("report.pdf", "3 files"), null = hide it. Safe to call from the main thread at any time. */
+    fun showDragChip(text: String?) {
+        if (text == null) { hideDragChip(); return }
+        if (!remote) return
+        val d = resources.displayMetrics.density
+        val v = chip ?: ChipView(this, d).also { chip = it }
+        v.text = text
+        v.requestLayout()
+        v.invalidate()
+        if (chipShown) { moveDragChip(); return }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT)
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = cx.toInt() + (14 * d).toInt(); lp.y = cy.toInt() + (22 * d).toInt()
+        try { wm?.addView(v, lp); chipShown = true } catch (e: Exception) { }
+    }
+
+    private fun moveDragChip() {
+        val v = chip ?: return
+        if (!chipShown) return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val d = resources.displayMetrics.density
+        lp.x = (cx + 14 * d).toInt(); lp.y = (cy + 22 * d).toInt()
+        try { wm?.updateViewLayout(v, lp) } catch (e: Exception) { }
+    }
+
+    private fun hideDragChip() {
+        if (!chipShown) return
+        try { wm?.removeView(chip) } catch (e: Exception) { }
+        chipShown = false
+    }
+
+    private class ChipView(ctx: android.content.Context, private val d: Float) : View(ctx) {
+        var text: String = ""
+        private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(235, 30, 90, 200) }
+        private val fg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 13f * d }
+        override fun onMeasure(w: Int, h: Int) {
+            val tw = fg.measureText(text).toInt()
+            setMeasuredDimension(tw + (22 * d).toInt(), (30 * d).toInt())
+        }
+        override fun onDraw(c: Canvas) {
+            c.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 8 * d, 8 * d, bg)
+            c.drawText(text, 11 * d, height / 2f + fg.textSize / 3f, fg)
+        }
     }
 
     private fun hideCursor() {
