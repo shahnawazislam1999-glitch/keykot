@@ -2,6 +2,7 @@ package com.phonedeck.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.InputMethod
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -409,18 +410,18 @@ class RemoteInputService : AccessibilityService() {
     }
 
     @RequiresApi(33)
-    inner class PcInput(s: AccessibilityService) : AccessibilityService.InputMethod(s)
+    inner class PcInput(s: AccessibilityService) : InputMethod(s)
 
-    private fun ic(): AccessibilityService.InputMethod.AccessibilityInputConnection? =
+    private fun ic(): InputMethod.AccessibilityInputConnection? =
         if (Build.VERSION.SDK_INT >= 33) pcIme?.currentInputConnection else null
 
-    private fun sendKey(c: AccessibilityService.InputMethod.AccessibilityInputConnection, code: Int, meta: Int = 0) {
+    private fun sendKey(c: InputMethod.AccessibilityInputConnection, code: Int, meta: Int = 0) {
         val t = SystemClock.uptimeMillis()
         c.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, meta))
         c.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0, meta))
     }
 
-    private fun icSelected(c: AccessibilityService.InputMethod.AccessibilityInputConnection): String? {
+    private fun icSelected(c: InputMethod.AccessibilityInputConnection): String? {
         return try {
             val st = c.getSurroundingText(20000, 20000, 0) ?: return null
             val a = minOf(st.selectionStart, st.selectionEnd)
