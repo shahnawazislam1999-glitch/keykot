@@ -10,10 +10,6 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.annotation.RequiresApi
@@ -35,7 +31,8 @@ import kotlin.math.hypot
 
 /**
  * Lets the PC's mouse and keyboard control this tablet.
- *  - The PC pushes events over [TabletLink]; this service draws a pointer (overlay) and performs them
+ *  - The PC pushes events over the link owned by [LinkHub] (it keeps running without this service);
+ *    this service draws a pointer (overlay) and performs them
  *    with accessibility gestures / actions (no root, no ADB).
  *  - Mouse: move = pointer, left = tap / long-press / drag, wheel = swipe, right = Back, middle = Home,
  *    side buttons = Back / Recents.
@@ -51,7 +48,6 @@ class RemoteInputService : AccessibilityService() {
     }
 
     private val ui = Handler(Looper.getMainLooper())
-    private var link: TabletLink? = null
     private var wm: WindowManager? = null
     private var cm: ClipboardManager? = null
     private var cursor: CursorView? = null
@@ -89,56 +85,18 @@ class RemoteInputService : AccessibilityService() {
     private var selfClipAt = 0L
     private var lastSentClip = ""
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
-        if (System.currentTimeMillis() - selfClipAt > 1500) clipDirty = true
+        if (System.currentTimeMillis() - selfClipAt > 1500) {
+            clipDirty = true
+            if (remote) ui.postDelayed({ pushTabletClipNow() }, 350)   // already on the PC before you even get there
+        }
     }
 
-    val isLinked: Boolean get() = link?.connected == true
+    val isLinked: Boolean get() = LinkHub.connected
 
     // ---------------------------------------------------------------- keep-alive / reconnect
-    private var lastBeat = 0L
-    private var netCb: ConnectivityManager.NetworkCallback? = null
-    private val finder: AutoFinder by lazy {
-        AutoFinder(this, { Prefs.of(this).getString("link", "") ?: "" }, { ip ->
-            val cur = Prefs.of(this).getString("link", "") ?: ""
-            if (cur.isNotEmpty()) {
-                val u = LinkUtil.withHost(cur, ip)
-                Prefs.of(this).edit().putString("link", u).apply()
-                LinkHistory.add(this, u)
-                link?.kick()
-            }
-        }, { })
-    }
-    private val selfBeat = object : Runnable {
-        override fun run() { heartbeat(); ui.postDelayed(this, 2000) }
-    }
-
-    /** Called every ~2 s (by [KeepAliveService] and by our own timer): ping, reconnect, find the PC if it moved. */
-    fun heartbeat() {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastBeat < 1500L) return
-        lastBeat = now
-        val l = link ?: return
-        if (!Prefs.of(this).getBoolean("share_on", false)) return
-        l.tick()
-        if (l.connected) finder.reset() else finder.outage()
-    }
-
-    private fun registerNet() {
-        if (netCb != null) return
-        try {
-            val c = getSystemService(ConnectivityManager::class.java)
-            val cb = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    val caps = c.getNetworkCapabilities(network) ?: return
-                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
-                        ui.post { finder.networkChanged(); if (link?.connected != true) link?.kick() }
-                    }
-                }
-            }
-            c.registerNetworkCallback(NetworkRequest.Builder().build(), cb)
-            netCb = cb
-        } catch (e: Exception) { }
-    }
+    // The link itself (connect, reconnect, hotspot changes, heartbeat) lives in [LinkHub]; nothing to do here.
+    /** Kept for old callers: the heartbeat is [LinkHub]'s job now. */
+    fun heartbeat() { LinkHub.heartbeat() }
 
     // ---------------------------------------------------------------- lifecycle
     override fun onServiceConnected() {
@@ -148,10 +106,8 @@ class RemoteInputService : AccessibilityService() {
         cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         try { cm?.addPrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
         refreshScreen()
-        registerNet()
-        ui.removeCallbacks(selfBeat)
-        ui.postDelayed(selfBeat, 2000)
         applyPrefs()
+        LinkHub.onInputServiceChanged()      // the PC may now show a pointer here
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -160,7 +116,7 @@ class RemoteInputService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         refreshScreen()
-        if (link?.connected == true) sendHello()
+        if (LinkHub.connected) sendHello()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -175,29 +131,28 @@ class RemoteInputService : AccessibilityService() {
 
     private fun shutdown() {
         exitRemote()
-        ui.removeCallbacks(selfBeat)
-        try { netCb?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (e: Exception) { }
-        netCb = null
-        link?.stop()
-        link = null
+        hideDragChip()
         try { cm?.removePrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
         instance = null
+        LinkHub.onInputServiceChanged()      // the PC must stop moving its pointer over here
     }
 
     fun applyPrefs() {
         val p = Prefs.of(this)
         gain = p.getFloat("mouse_gain", 1.6f)
-        if (p.getBoolean("share_on", false)) {
-            val l = link ?: TabletLink(this, ui, { onMsg(it) }, { onLinkState(it) }).also { link = it }
-            l.start()
-            if (l.connected) sendHello()
+        if (KeepAlive.wanted(this)) {
             KeepAlive.start(this)
+            LinkHub.ensure(this)
+            if (LinkHub.connected) sendHello()
         } else {
             exitRemote()
-            link?.stop()
+            LinkHub.stop()
             KeepAlive.stop(this)
         }
     }
+
+    /** Real screen size in pixels (the PC needs it to place the pointer). */
+    fun screenSize(): Pair<Int, Int> { refreshScreen(); return Pair(sw, sh) }
 
     @Suppress("DEPRECATION")
     private fun refreshScreen() {
@@ -206,19 +161,17 @@ class RemoteInputService : AccessibilityService() {
         if (dm.widthPixels > 0 && dm.heightPixels > 0) { sw = dm.widthPixels; sh = dm.heightPixels }
     }
 
-    private fun sendHello() {
-        refreshScreen()
-        val p = Prefs.of(this)
-        link?.send(JSONObject().put("t", "hello").put("w", sw).put("h", sh))
-        link?.send(JSONObject().put("t", "cfg").put("edge", p.getString("pc_edge", "right"))
-            .put("on", p.getBoolean("share_on", false)))
-    }
+    private fun sendHello() { refreshScreen(); LinkHub.sendHello() }
 
-    private fun onLinkState(connected: Boolean) {
-        if (connected) sendHello() else exitRemote()
+    /** [LinkHub] reports the link going up / down (it already sent the hello when it came up). */
+    fun onLinkState(connected: Boolean) {
+        if (!connected) exitRemote()
     }
 
     // ---------------------------------------------------------------- messages from the PC
+    /** Pointer / keyboard / clipboard messages forwarded by [LinkHub] (file messages never come here). */
+    fun onHubMessage(o: JSONObject) { onMsg(o) }
+
     private fun onMsg(o: JSONObject) {
         when (o.optString("t")) {
             "enter" -> enter(o.optString("edge", "left"), o.optDouble("f", 0.5).toFloat())
@@ -253,21 +206,15 @@ class RemoteInputService : AccessibilityService() {
         remote = false
         cancelDrag()
         hideCursor()
+        hideDragChip()
+        FileReceiver.onDragEnd(this)         // files carried over but not released: forget them
     }
 
     private fun leave() {
         val f = if (peerEdge == "left" || peerEdge == "right") cy / sh else cx / sw
-        link?.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
+        LinkHub.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
         exitRemote()
-        if (clipDirty) {
-            val t = readClipSafe()
-            if (t != null) pushClip(t) else {
-                try {
-                    startActivity(Intent(this, ClipReadActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
-                } catch (e: Exception) { }
-            }
-        }
+        pushTabletClipNow()
     }
 
     // ---------------------------------------------------------------- pointer
@@ -321,9 +268,13 @@ class RemoteInputService : AccessibilityService() {
         } catch (e: Exception) { }
     }
 
+    private var holdDrag = false
+
     private fun startDrag() {
         dragging = true; dragEnding = false; pumpBusy = false
         dragX = downX; dragY = downY; curStroke = null
+        // held still for a moment before moving = long-press, then drag: selects text (and moves selection handles)
+        holdDrag = System.currentTimeMillis() - downT >= 400L
     }
 
     /** Streams the drag as a chain of continued strokes (one in flight at a time). */
@@ -332,15 +283,17 @@ class RemoteInputService : AccessibilityService() {
         val tx = cx
         val ty = cy
         if (!dragEnding && tx == dragX && ty == dragY) return
-        val path = Path().apply { moveTo(dragX, dragY); lineTo(tx, ty) }
         val cont = !dragEnding
         val prev = curStroke
+        val hold = prev == null && holdDrag && cont
+        val path = Path().apply { moveTo(dragX, dragY); if (!hold) lineTo(tx, ty) }
         val s = try {
-            if (prev == null) GestureDescription.StrokeDescription(path, 0, 40, cont)
+            if (hold) GestureDescription.StrokeDescription(path, 0, 520, true)      // the long-press part
+            else if (prev == null) GestureDescription.StrokeDescription(path, 0, 40, cont)
             else prev.continueStroke(path, 0, 40, cont)
         } catch (e: Exception) { finishDrag(); return }
         curStroke = s
-        dragX = tx; dragY = ty
+        if (hold) holdDrag = false else { dragX = tx; dragY = ty }
         pumpBusy = true
         val ok = try {
             dispatchGesture(GestureDescription.Builder().addStroke(s).build(),
@@ -564,6 +517,7 @@ class RemoteInputService : AccessibilityService() {
                 } else n.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             }
             "copy", "cut" -> {
+                if (k == "copy" && pressToolbarCopy()) return
                 val r = rootInActiveWindow ?: return
                 val n = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                     ?: r.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY) ?: return
@@ -574,6 +528,29 @@ class RemoteInputService : AccessibilityService() {
                 if (sel != null) { clipFromPc = null; pushClip(sel) } else clipDirty = true
             }
         }
+    }
+
+    /** Text selected by long-press + drag (web pages, chats, articles): tap the "Copy" button of the floating selection toolbar. */
+    private fun pressToolbarCopy(): Boolean {
+        return try {
+            for (w in windows) {
+                val root = w.root ?: continue
+                for (label in listOf("Copy", "COPY", "Kopieren", "Copiar", "Copier", "Copia", "\u590D\u5236", "\u0915\u0949\u092A\u0940")) {
+                    for (n in root.findAccessibilityNodeInfosByText(label)) {
+                        var t: AccessibilityNodeInfo? = n
+                        while (t != null && !t.isClickable) t = t.parent
+                        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                            selfClipAt = System.currentTimeMillis() - 1600     // a real copy: let the clipboard listener see it
+                            clipFromPc = null
+                            clipDirty = true
+                            ui.postDelayed({ pushTabletClipNow() }, 350)
+                            return true
+                        }
+                    }
+                }
+            }
+            false
+        } catch (e: Exception) { false }
     }
 
     private fun selectedText(n: AccessibilityNodeInfo): String? {
@@ -587,6 +564,20 @@ class RemoteInputService : AccessibilityService() {
     }
 
     // ---------------------------------------------------------------- clipboard
+    /**
+     * A PC screenshot is now the tablet's clipboard picture. Forget the old PC text (so Ctrl+V pastes the picture, not that text)
+     * and, when [autoPaste] is on and a text box is focused (ChatGPT's message box, a search field...), paste it right away.
+     */
+    fun onSnipClip(autoPaste: Boolean) {
+        clipFromPc = null
+        clipDirty = false
+        selfClipAt = System.currentTimeMillis()
+        if (!autoPaste || !remote) return
+        ui.postDelayed({
+            if (ic() != null || editNode() != null) combo("paste")
+        }, 400)
+    }
+
     private fun setClipFromPc(text: String) {
         if (text.isEmpty()) return
         clipFromPc = text
@@ -605,7 +596,19 @@ class RemoteInputService : AccessibilityService() {
         clipDirty = false
         if (t.isEmpty() || t == lastSentClip) return
         lastSentClip = t
-        link?.send(JSONObject().put("t", "clip").put("text", t.take(100_000)))
+        if (LinkHub.send(JSONObject().put("t", "clip").put("text", t.take(100_000))))
+            ui.post { try { android.widget.Toast.makeText(this, "Copied to the PC clipboard: Ctrl+V there", android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) { } }
+    }
+
+    /** Get the tablet's clipboard text to the PC now (Android only lets a focused app read it, so a blink-length helper screen does it). */
+    private fun pushTabletClipNow() {
+        if (!clipDirty) return
+        val t = readClipSafe()
+        if (t != null) { pushClip(t); return }
+        try {
+            startActivity(Intent(this, ClipReadActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        } catch (e: Exception) { }
     }
 
     /** Called by [ClipReadActivity] (it briefly has focus, so Android lets it read the clipboard). */
@@ -635,6 +638,61 @@ class RemoteInputService : AccessibilityService() {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         lp.x = cx.toInt(); lp.y = cy.toInt()
         try { wm?.updateViewLayout(v, lp) } catch (e: Exception) { }
+        moveDragChip()
+    }
+
+    // ---------------------------------------------------------------- the chip that follows the pointer while files are carried
+    private var chip: ChipView? = null
+    private var chipShown = false
+
+    /** [text] = what to show ("report.pdf", "3 files"), null = hide it. Safe to call from the main thread at any time. */
+    fun showDragChip(text: String?) {
+        if (text == null) { hideDragChip(); return }
+        if (!remote) return
+        val d = resources.displayMetrics.density
+        val v = chip ?: ChipView(this, d).also { chip = it }
+        v.text = text
+        v.requestLayout()
+        v.invalidate()
+        if (chipShown) { moveDragChip(); return }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT)
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = cx.toInt() + (14 * d).toInt(); lp.y = cy.toInt() + (22 * d).toInt()
+        try { wm?.addView(v, lp); chipShown = true } catch (e: Exception) { }
+    }
+
+    private fun moveDragChip() {
+        val v = chip ?: return
+        if (!chipShown) return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val d = resources.displayMetrics.density
+        lp.x = (cx + 14 * d).toInt(); lp.y = (cy + 22 * d).toInt()
+        try { wm?.updateViewLayout(v, lp) } catch (e: Exception) { }
+    }
+
+    private fun hideDragChip() {
+        if (!chipShown) return
+        try { wm?.removeView(chip) } catch (e: Exception) { }
+        chipShown = false
+    }
+
+    private class ChipView(ctx: android.content.Context, private val d: Float) : View(ctx) {
+        var text: String = ""
+        private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(235, 30, 90, 200) }
+        private val fg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 13f * d }
+        override fun onMeasure(w: Int, h: Int) {
+            val tw = fg.measureText(text).toInt()
+            setMeasuredDimension(tw + (22 * d).toInt(), (30 * d).toInt())
+        }
+        override fun onDraw(c: Canvas) {
+            c.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 8 * d, 8 * d, bg)
+            c.drawText(text, 11 * d, height / 2f + fg.textSize / 3f, fg)
+        }
     }
 
     private fun hideCursor() {

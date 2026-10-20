@@ -127,7 +127,7 @@ class BtActivity : ComponentActivity(), TouchpadView.Listener {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastBack < 2000) finish()
+                if (now - lastBack < 2000) { Prefs.of(this@BtActivity).edit().putBoolean("user_left", true).apply(); finish() }
                 else {
                     lastBack = now
                     Toast.makeText(this@BtActivity, "Press back again to disconnect", Toast.LENGTH_SHORT).show()

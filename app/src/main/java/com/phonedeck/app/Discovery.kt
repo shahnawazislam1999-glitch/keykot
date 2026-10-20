@@ -168,6 +168,43 @@ object Discovery {
         return code == 200
     }
 
+    /**
+     * Quick check of a few likely addresses (the remembered PC of this network, the gateway, an address a beacon announced):
+     * no full scan, answers in well under a second. Returns the real PhoneDeck PCs among [ips], best first.
+     */
+    fun probe(ctx: Context, port: Int, key: String, ips: List<String>, isCancelled: () -> Boolean = { false }): List<Hit> {
+        val list = ips.distinct().filter { parseIp(it) != null }
+        val nets = localNets(ctx)
+        if (list.isEmpty() || nets.isEmpty()) return emptyList()
+        val hits = Collections.synchronizedList(ArrayList<Hit>())
+        val pool = Executors.newFixedThreadPool(minOf(8, list.size))
+        val latch = CountDownLatch(list.size)
+        for (ip in list) {
+            pool.execute {
+                try {
+                    if (!isCancelled()) {
+                        val v = parseIp(ip)!!
+                        val net = nets.firstOrNull { n ->
+                            n.subnets.any { (a, p) -> NetInfo.sameSubnet(a, v, p) }
+                        } ?: nets.first()
+                        val t0 = SystemClock.elapsedRealtime()
+                        if (connectOpen(net, ip, port, 700) && isPhoneDeck(net, ip, port)) {
+                            val ms = (SystemClock.elapsedRealtime() - t0).toInt()
+                            val ok: Boolean? = if (key.isEmpty()) null else keyWorks(net, ip, port, key)
+                            hits.add(Hit(ip, ms, ok, net.network))
+                        }
+                    }
+                } catch (e: Exception) {
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+        try { latch.await(4, java.util.concurrent.TimeUnit.SECONDS) } catch (e: InterruptedException) { }
+        pool.shutdownNow()
+        return synchronized(hits) { hits.sortedWith(compareBy<Hit>({ if (it.keyOk == false) 1 else 0 }, { it.ms })) }
+    }
+
     // ==== ANCHOR:DISCOVERY_SCAN ====
     /**
      * Looks for PhoneDeck PCs on [port] on every local network (a /24 at most per subnet).

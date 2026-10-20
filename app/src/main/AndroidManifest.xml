@@ -22,11 +22,15 @@
     <!-- always active in the background: lets the user exempt the app from battery optimisation -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- background link: UDP discovery of the PC after a hotspot change, keep Wi-Fi awake, exact-enough wake-ups -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- optional, granted once over adb: lets the app switch its accessibility service back on if HyperOS turns it off -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <application
+        android:name=".PhoneDeckApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -109,6 +113,11 @@
         </service>
 
         <receiver android:name=".WatchdogReceiver" android:exported="false" />
+        <receiver android:name=".NetworkWakeReceiver" android:exported="false" />
+        <service
+            android:name=".RevivalJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

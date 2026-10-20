@@ -37,7 +37,7 @@ class ConnectActivity : ComponentActivity() {
         findViewById<Button>(R.id.paste).setOnClickListener { pasteAndConnect() }
         findViewById<Button>(R.id.go).setOnClickListener { connect(input.text.toString()) }
         findViewById<Button>(R.id.bt).setOnClickListener { startBt() }
-        findViewById<Button>(R.id.share).setOnClickListener { startActivity(Intent(this, MouseShareActivity::class.java)) }
+        findViewById<Button>(R.id.share).setOnClickListener { skipResume = true; startActivity(Intent(this, MouseShareActivity::class.java)) }
         findViewById<Button>(R.id.recent).setOnClickListener { showRecent() }
         findViewById<Button>(R.id.find).setOnClickListener { findPc() }
         findViewById<Button>(R.id.test).setOnClickListener { testLink() }
@@ -51,10 +51,31 @@ class ConnectActivity : ComponentActivity() {
         }
 
         val shared = handleShare(intent)
-        if (!shared && savedInstanceState == null && auto.isChecked) {
-            if (p.getString("mode", "wifi") == "bt") startBt()
-            else if (LinkUtil.parse(input.text.toString()) != null) connect(input.text.toString())
-        }
+        if (!shared) autoOpen()
+    }
+
+    private var lastAuto = 0L
+    private var skipResume = false      // set when this screen opened another settings screen: do not jump into the deck on return
+
+    /**
+     * Connect once, never again: whenever this screen comes up (fresh start, restored after Android closed the app in the
+     * background, coming back from Recents) and a link is saved, go straight into the deck. Only when YOU chose to disconnect
+     * (Change link / back twice) does the screen stay until you press Connect again.
+     */
+    private fun autoOpen() {
+        val p = Prefs.of(this)
+        if (!auto.isChecked || p.getBoolean("user_left", false) || DeckActivity.alive) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastAuto < 2500L) return
+        lastAuto = now
+        if (p.getString("mode", "wifi") == "bt") startBt()
+        else if (LinkUtil.parse(input.text.toString()) != null) connect(input.text.toString())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // e.g. the deck was closed by the system while the app was in the background
+        if (skipResume) skipResume = false else window.decorView.post { autoOpen() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -94,9 +115,18 @@ class ConnectActivity : ComponentActivity() {
             say(getString(R.string.bad_link), false)
             return
         }
-        Prefs.of(this).edit().putString("link", url).putString("mode", "wifi").apply()
+        val pr = Prefs.of(this)
+        pr.edit().putString("link", url).putString("mode", "wifi").putBoolean("user_left", false).apply()
         LinkHistory.add(this, url)
         input.setText(url)
+        // connect once, never again: the background link starts now and from then on after every reboot / network change
+        if (!pr.contains("share_on")) pr.edit().putBoolean("share_on", true).apply()
+        if (KeepAlive.wanted(this)) {
+            KeepAlive.start(this)
+            LinkHub.ensure(this)
+            LinkHub.kickNow()
+            Background.askEssentials(this)
+        }
         say("Connecting…", true)
         startActivity(Intent(this, DeckActivity::class.java).putExtra("url", url))
     }
@@ -138,7 +168,7 @@ class ConnectActivity : ComponentActivity() {
     }
 
     private fun startBt() {
-        Prefs.of(this).edit().putString("mode", "bt").apply()
+        Prefs.of(this).edit().putString("mode", "bt").putBoolean("user_left", false).apply()
         startActivity(Intent(this, BtActivity::class.java))
     }
 

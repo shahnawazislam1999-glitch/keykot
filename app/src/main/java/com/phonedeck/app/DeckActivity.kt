@@ -50,6 +50,8 @@ import java.util.Locale
  * Search for "ANCHOR:" to jump to a section.
  */
 class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.Listener {
+    companion object { @Volatile var alive = false }
+
     private lateinit var web: WebView
     private lateinit var column: LinearLayout
     private lateinit var errorBox: View
@@ -117,6 +119,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        alive = true
         setContentView(R.layout.activity_deck)
         setupFullscreen(findViewById(R.id.root))
 
@@ -145,7 +148,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             web.loadUrl(url)
         }
         findViewById<Button>(R.id.find).setOnClickListener { findPc() }
-        findViewById<Button>(R.id.change).setOnClickListener { finish() }
+        findViewById<Button>(R.id.change).setOnClickListener { userLeave() }
         dlOpen.setOnClickListener { doneUri?.let { openFile(it, doneName) } }
         findViewById<View>(R.id.dlClose).setOnClickListener {
             if (curDl >= 0) { downloader.cancel(curDl); Toast.makeText(this, "Download cancelled", Toast.LENGTH_SHORT).show() }
@@ -244,7 +247,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastBack < 2000) finish()
+                if (now - lastBack < 2000) userLeave()
                 else {
                     lastBack = now
                     Toast.makeText(this@DeckActivity, "Press back again to disconnect", Toast.LENGTH_SHORT).show()
@@ -475,7 +478,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
             "reload" -> { attempt = 0; loadFailed = false; fatalError = false; web.loadUrl(url) }
             "find" -> findPc()
             "testkeys" -> testKeys()
-            "disconnect" -> finish()
+            "disconnect" -> userLeave()
             "clearwords" -> AlertDialog.Builder(this)
                 .setTitle("Clear learned words?")
                 .setMessage("This removes the " + words.learnedCount() + " words you taught PhoneDeck. The built-in common words stay.")
@@ -789,7 +792,14 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
         super.onPause()
     }
 
+    /** The user chose to disconnect: only then may the start screen stay (otherwise the app reopens straight into the deck). */
+    private fun userLeave() {
+        Prefs.of(this).edit().putBoolean("user_left", true).apply()
+        finish()
+    }
+
     override fun onDestroy() {
+        alive = false
         ui.removeCallbacksAndMessages(null)
         guard?.stop()
         guard = null

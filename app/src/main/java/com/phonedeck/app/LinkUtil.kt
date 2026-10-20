@@ -34,6 +34,10 @@ object LinkUtil {
         return u.buildUpon().encodedAuthority(newHost + port).build().toString()
     }
 
+    /** Same link but another machine AND port. */
+    fun withHostPort(url: String, newHost: String, newPort: Int): String =
+        Uri.parse(url).buildUpon().encodedAuthority("$newHost:$newPort").build().toString()
+
     /** "192.168.1.5:8080" - for lists; the secret key in the link is not shown. */
     fun pretty(url: String): String {
         val u = Uri.parse(url)

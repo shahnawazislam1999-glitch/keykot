@@ -105,3 +105,35 @@ Push the PC's mouse off the right edge of the PC screen and the pointer appears 
 
 ## v2.7: PC keyboard works in every app (Android 13+)
 The accessibility service now also acts as an invisible keyboard (input method hook), so PC typing, Backspace, Delete, arrows (+Shift to select), Enter, Shift+Enter, Tab and Ctrl+A/C/X/V reach the focused field in any app (Claude, ChatGPT, Chrome, Compose / WebView fields). Tap the text field with the PC mouse first. On Android 12 and older the older text-box method is used.
+
+
+## v2.8.0: drag files from the PC + always-on background link
+**Drag a file from the PC to the tablet.** In Explorer or on the Desktop press on a file (or a selection), drag it against the
+PC screen edge that leads to the tablet and keep the button down. The PC cancels its own drag, the pointer (with a small file chip)
+appears on the tablet and the file starts downloading at once. Let go on the tablet: it is saved in `Downloads/PhoneDeck` and a
+notification (tap = open) appears. Moving back to the PC without letting go cancels it. Folders arrive as `.zip`.
+Without the accessibility service the files are handed over as soon as you reach the edge. Switch: "Drag files from the PC".
+Limits: only Explorer / Desktop file lists (not browsers or other apps); it cannot drop *into* a specific tablet app.
+Code: `PhoneDeck/tabletlink.py` (detection, offer), `server.py` (`/tfile`), `FileReceiver.kt`, `RemoteInputService.kt` (chip).
+
+**Connect once, never again.** The link is saved the first time you press Connect and the background link switches on by itself
+(`LinkHub.kt`). It runs without any screen: closing / swiping the app, locking the screen and rebooting do not stop it.
+Five independent ways back: foreground service (`KeepAliveService`), 1-minute alarm, boot receiver, a network wake-up that works
+even when the process is dead, and a persisted job every ~15 min (`Background.kt`). `MouseShareActivity` ("PC link") has a checklist
+(battery, notifications, accessibility, overlay, link) with a "Fix everything" button and shortcuts to the autostart screens of
+Xiaomi, Huawei, Oppo, Vivo, Samsung, OnePlus, Asus and others. The notification has a **Reconnect now** button.
+
+**Switching to another hotspot / Wi-Fi.** Both sides react at once:
+1. the tablet notices the network change, drops the dead socket and reconnects;
+2. it probes the PC address remembered for that network, the router / hotspot address and any address a beacon announced;
+3. the PC broadcasts a UDP beacon (port 48123) every 2 s on every network it is on, so the tablet learns the new PC address within seconds (the key is never broadcast, only a fingerprint);
+4. full network scan as the last resort. The new address is saved automatically.
+The PC replaces a dead link immediately when the tablet comes back and drops a silent link after 15 s.
+
+**Snips.** After Win+Shift+S / Snipping Tool, move the PC mouse onto the tablet: the screenshot is saved in `Downloads/PhoneDeck` as a PNG (sent once per snip).
+
+**Snip -> paste.** The screenshot also becomes the tablet's clipboard picture. Tap a text box (e.g. the ChatGPT message box), take the snip on the PC, push the mouse onto the tablet: it is pasted at once (switch "PC screenshot: paste it into the focused text box"). Otherwise press Ctrl+V on the PC keyboard while the pointer is on the tablet. Needs the accessibility service for the paste; the app receiving the paste must accept images (ChatGPT does).
+
+**Opening the app never asks to connect again.** Reopening PhoneDeck (from Recents, after Android closed it in the background, after a reboot) goes straight into the deck with the saved link. The start screen only stays when you disconnect yourself (Change link, or Back twice); pressing Connect again re-enables it.
+
+**Tablet text -> PC.** Select text with the PC mouse: hold the left button still for half a second on the text, then drag (long-press + drag = selection). Press **Ctrl+C** on the PC keyboard (it taps the selection toolbar's Copy), or use the app's own Copy. The text goes to the PC clipboard within a moment (a small "Copied to the PC clipboard" message appears); move the mouse to the PC and press Ctrl+V. Needs "Show over other apps" allowed for the invisible helper screen that reads the clipboard.

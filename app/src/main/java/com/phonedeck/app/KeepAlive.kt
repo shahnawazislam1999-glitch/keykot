@@ -23,24 +23,39 @@ import android.provider.Settings
 import androidx.core.content.ContextCompat
 
 /**
- * "Never stop" machinery for the PC-mouse feature:
+ * "Never stop" machinery for the PC link (mouse, keyboard, clipboard, dragged files):
  *  - [KeepAliveService]: foreground service (permanent notification), CPU wake lock + Wi-Fi lock,
- *    restarts itself when killed / swiped away, and drives the connection heartbeat every 2 s.
+ *    restarts itself when killed / swiped away, and drives the connection heartbeat every 2 s ([LinkHub]).
  *  - [WatchdogReceiver]: an alarm every minute that restarts the service if the system killed it.
  *  - [BootReceiver]: starts everything after a reboot / app update.
+ *  - [Background]: wake-up on every network change + a persisted job every ~15 min (both work even when the process is gone).
  *  - re-enables the accessibility service by itself if WRITE_SECURE_SETTINGS was granted (see README).
+ *
+ * The background link is ON by default as soon as a link is saved ("connect once, never again").
+ * The switch in "PC mouse on this tablet" only turns it off when you switch it off yourself.
  */
 object KeepAlive {
-    fun wanted(ctx: Context) = Prefs.of(ctx).getBoolean("share_on", false)
+    /** On unless the user switched it off: a saved link is enough. */
+    fun wanted(ctx: Context): Boolean {
+        val p = Prefs.of(ctx)
+        return if (p.contains("share_on")) p.getBoolean("share_on", false)
+        else !(p.getString("link", "") ?: "").isBlank()
+    }
 
     fun start(ctx: Context) {
-        try { ContextCompat.startForegroundService(ctx, Intent(ctx, KeepAliveService::class.java)) } catch (e: Exception) { }
-        scheduleWatchdog(ctx, 60_000L)
+        val app = ctx.applicationContext
+        try { ContextCompat.startForegroundService(app, Intent(app, KeepAliveService::class.java)) } catch (e: Exception) { }
+        scheduleWatchdog(app, 60_000L)
+        Background.registerNetworkWake(app)
+        Background.scheduleRevivalJob(app)
     }
 
     fun stop(ctx: Context) {
-        try { ctx.stopService(Intent(ctx, KeepAliveService::class.java)) } catch (e: Exception) { }
-        cancelWatchdog(ctx)
+        val app = ctx.applicationContext
+        try { app.stopService(Intent(app, KeepAliveService::class.java)) } catch (e: Exception) { }
+        cancelWatchdog(app)
+        Background.unregisterNetworkWake(app)
+        Background.cancelRevivalJob(app)
     }
 
     private fun pending(ctx: Context): PendingIntent =
@@ -77,13 +92,17 @@ class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent?) {
         if (!KeepAlive.wanted(ctx)) return
         KeepAlive.start(ctx)                       // also re-arms the next alarm
-        RemoteInputService.instance?.heartbeat()
+        LinkHub.ensure(ctx)
+        if (intent?.getBooleanExtra("kick", false) == true) LinkHub.kickNow() else LinkHub.heartbeat()
     }
 }
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent?) {
-        if (KeepAlive.wanted(ctx)) KeepAlive.start(ctx)
+        if (KeepAlive.wanted(ctx)) {
+            KeepAlive.start(ctx)
+            LinkHub.ensure(ctx)
+        }
     }
 }
 
@@ -96,11 +115,12 @@ class KeepAliveService : Service() {
     private val loop = object : Runnable {
         override fun run() {
             if (!KeepAlive.wanted(this@KeepAliveService)) { stopSelf(); return }
-            val svc = RemoteInputService.instance
-            if (svc == null) {
+            if (RemoteInputService.instance == null) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastReenable > 10_000L) { lastReenable = now; KeepAlive.reenableAccessibility(this@KeepAliveService) }
-            } else svc.heartbeat()
+            }
+            LinkHub.ensure(this@KeepAliveService)
+            LinkHub.heartbeat()
             updateNotification()
             ui.postDelayed(this, 2000)
         }
@@ -111,7 +131,7 @@ class KeepAliveService : Service() {
     override fun onCreate() {
         super.onCreate()
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("keepalive", "PC mouse link", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel("keepalive", "PC link (keeps running)", NotificationManager.IMPORTANCE_LOW))
         startFg(buildNotification("Starting…"))
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -126,6 +146,7 @@ class KeepAliveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         KeepAlive.scheduleWatchdog(this, 60_000L)
+        LinkHub.ensure(this)
         return START_STICKY
     }
 
@@ -153,22 +174,21 @@ class KeepAliveService : Service() {
     private fun buildNotification(text: String): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MouseShareActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val kick = PendingIntent.getBroadcast(this, 8, Intent(this, WatchdogReceiver::class.java).putExtra("kick", true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, "keepalive")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("PhoneDeck: PC mouse")
+            .setContentTitle("PhoneDeck")
             .setContentText(text)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
+            .addAction(android.R.drawable.ic_popup_sync, "Reconnect now", kick)
             .build()
     }
 
     private fun updateNotification() {
-        val svc = RemoteInputService.instance
-        val text = when {
-            svc == null -> "Accessibility service is off: tap to fix"
-            svc.isLinked -> "Connected to the PC"
-            else -> "Searching for the PC…"
-        }
+        val text = LinkHub.statusText(this)
         if (text != lastText) {
             lastText = text
             try { getSystemService(NotificationManager::class.java).notify(77, buildNotification(text)) } catch (e: Exception) { }

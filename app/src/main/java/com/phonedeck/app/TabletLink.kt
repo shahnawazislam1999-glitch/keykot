@@ -1,20 +1,15 @@
 package com.phonedeck.app
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.SystemClock
-import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
-import java.net.InetAddress
-import java.util.concurrent.TimeUnit
 
 /**
  * Keeps a WebSocket open to the PC server (ws://host:port/tablet?key=...) and reconnects aggressively:
@@ -79,7 +74,10 @@ class TabletLink(
         }
     }
 
-    fun send(o: JSONObject) { try { ws?.send(o.toString()) } catch (e: Exception) { } }
+    fun send(o: JSONObject): Boolean = try { ws?.send(o.toString()) ?: false } catch (e: Exception) { false }
+
+    /** Milliseconds since the last thing arrived from the PC (a big number while not connected). */
+    fun silenceMs(): Long = if (lastRx == 0L) Long.MAX_VALUE else SystemClock.elapsedRealtime() - lastRx
 
     private fun setState(c: Boolean) {
         if (connected != c) { connected = c; onState(c) }
@@ -93,27 +91,7 @@ class TabletLink(
         ui.postDelayed(retryRun, wait)
     }
 
-    private fun client(): OkHttpClient {
-        val b = OkHttpClient.Builder()
-            .pingInterval(5, TimeUnit.SECONDS)
-            .connectTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-        try {
-            val cm = ctx.getSystemService(ConnectivityManager::class.java)
-            @Suppress("DEPRECATION")
-            for (n in cm.allNetworks) {
-                val c = cm.getNetworkCapabilities(n) ?: continue
-                if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
-                    b.socketFactory(n.socketFactory)
-                    b.dns(object : Dns {
-                        override fun lookup(hostname: String): List<InetAddress> = n.getAllByName(hostname).toList()
-                    })
-                    break
-                }
-            }
-        } catch (e: Exception) { }
-        return b.build()
-    }
+    private fun client(host: String?): OkHttpClient = NetUtil.client(ctx, host, connectMs = 3000, readMs = 0, pingSec = 5)
 
     private fun open() {
         if (!running) return
@@ -130,7 +108,7 @@ class TabletLink(
         } catch (e: Exception) { retry(); return }
         val my = ++conn
         try { ws?.cancel() } catch (e: Exception) { }
-        ws = client().newWebSocket(req, object : WebSocketListener() {
+        ws = client(host).newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 ui.post {
                     if (my == conn && running) {
