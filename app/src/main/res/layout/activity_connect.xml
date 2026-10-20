@@ -109,6 +109,19 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/share"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_btn"
+                    android:stateListAnimator="@null"
+                    android:text="PC mouse on this tablet"
+                    android:textAllCaps="false"
+                    android:textColor="@color/txt"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

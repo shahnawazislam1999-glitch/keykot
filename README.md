@@ -84,3 +84,13 @@ The app goes to the background and the Type keyboard + mouse pad float above eve
 - **Floating keyboard follows.** It updates its link and reconnects too (it also searches by itself when the app is in the background).
 - Manual **Find PC** (menu / connect screen) uses the same checks and marks results whose key is old.
 - Code: `Discovery.kt` (DISCOVERY_SCAN, `AutoFinder`), `ConnectionGuard.kt` (GUARD_BIND, `onNetworkChanged`), `DeckActivity.kt` (`switchTo`), `FloatService.kt` (`relinkTo`).
+
+## v2.5: PC mouse + keyboard on the tablet (reverse direction)
+Push the PC's mouse off the right edge of the PC screen and the pointer appears on the tablet's left edge. Everything on the tablet can then be used with the PC mouse and keyboard; push left off the tablet's left edge to come back.
+- **Setup (tablet):** open the app > **PC mouse on this tablet** > turn on the switch > **Open Accessibility settings** > switch on **PhoneDeck PC mouse**. (Android 13+: if the switch is greyed out use App info > ⋮ > *Allow restricted settings* first.) Connect once with **Paste & Connect** so the PC link is saved; the feature then reconnects by itself, even when the app is closed.
+- **Setup (PC):** replace `server.py`, add `tabletlink.py` (both in the PhoneDeck folder), run `stop-phonedeck.bat` then `start-lan.bat`.
+- **Mouse:** left = tap / hold (long-press) / drag, wheel = scroll, right = Back, middle = Home, side buttons = Back / Recents. Speed and which PC edge to use are in the settings screen.
+- **Keyboard:** text, Backspace, Delete, arrows, Home/End, Enter, Esc (= Back), Ctrl+A/C/X/V.
+- **Clipboard:** copy on the PC, cross over (the text is copied to the tablet), Ctrl+V in any text field. Ctrl+C on the tablet sends the selection to the PC clipboard; the tablet clipboard is also sent when you cross back.
+- **Panic key:** SCROLL LOCK on the PC always returns the mouse and keyboard to the PC.
+- Code: `RemoteInputService.kt` (pointer overlay, gestures, typing, clipboard), `TabletLink.kt` (connection to the PC), `ClipReadActivity.kt`, `MouseShareActivity.kt`; PC side `PhoneDeck/tabletlink.py`.

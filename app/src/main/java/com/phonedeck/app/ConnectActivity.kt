@@ -37,6 +37,7 @@ class ConnectActivity : ComponentActivity() {
         findViewById<Button>(R.id.paste).setOnClickListener { pasteAndConnect() }
         findViewById<Button>(R.id.go).setOnClickListener { connect(input.text.toString()) }
         findViewById<Button>(R.id.bt).setOnClickListener { startBt() }
+        findViewById<Button>(R.id.share).setOnClickListener { startActivity(Intent(this, MouseShareActivity::class.java)) }
         findViewById<Button>(R.id.recent).setOnClickListener { showRecent() }
         findViewById<Button>(R.id.find).setOnClickListener { findPc() }
         findViewById<Button>(R.id.test).setOnClickListener { testLink() }

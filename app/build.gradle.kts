@@ -11,8 +11,8 @@ android {
         applicationId = "com.phonedeck.app"
         minSdk = 29          // Android 10+
         targetSdk = 34
-        versionCode = 4
-        versionName = "2.2"
+        versionCode = 5
+        versionName = "2.5"
     }
 
     buildTypes {
@@ -33,4 +33,5 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
