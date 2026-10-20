@@ -102,3 +102,6 @@ Push the PC's mouse off the right edge of the PC screen and the pointer appears 
 - Settings screen has **Battery: allow always active** and **Xiaomi: Autostart settings** buttons.
 - **Optional, strongest:** if HyperOS switches the accessibility service off, the app can switch it back on itself. Once, with the tablet connected by USB debugging (or Wireless debugging) from a PC with adb:
   `adb shell pm grant com.phonedeck.app android.permission.WRITE_SECURE_SETTINGS`
+
+## v2.7: PC keyboard works in every app (Android 13+)
+The accessibility service now also acts as an invisible keyboard (input method hook), so PC typing, Backspace, Delete, arrows (+Shift to select), Enter, Shift+Enter, Tab and Ctrl+A/C/X/V reach the focused field in any app (Claude, ChatGPT, Chrome, Compose / WebView fields). Tap the text field with the PC mouse first. On Android 12 and older the older text-box method is used.

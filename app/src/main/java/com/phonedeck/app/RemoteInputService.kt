@@ -14,6 +14,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.SystemClock
+import android.view.KeyEvent
+import androidx.annotation.RequiresApi
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Build
@@ -224,7 +226,7 @@ class RemoteInputService : AccessibilityService() {
             "b" -> if (remote) handleButton(o.optString("b"), o.optBoolean("d"))
             "w" -> if (remote) handleWheel(o.optDouble("dx").toFloat(), o.optDouble("dy").toFloat())
             "text" -> if (remote) typeText(o.optString("s"))
-            "key" -> if (remote) pressKey(o.optString("k"))
+            "key" -> if (remote) pressKey(o.optString("k"), o.optBoolean("shift"))
             "combo" -> if (remote) combo(o.optString("k"))
             "clip" -> setClipFromPc(o.optString("text"))
             "pong" -> {}
@@ -394,11 +396,53 @@ class RemoteInputService : AccessibilityService() {
         if (!ok) wheelBusy = false
     }
 
+    // ---------------------------------------------------------------- real input connection (Android 13+)
+    // The accessibility service can act as an invisible keyboard: it gets the focused field's input connection,
+    // so typing works in every app (Claude, ChatGPT, Compose / WebView fields), not only classic text boxes.
+    private var pcIme: PcInput? = null
+
+    @RequiresApi(33)
+    override fun onCreateInputMethod(): InputMethod {
+        val m = PcInput(this)
+        pcIme = m
+        return m
+    }
+
+    @RequiresApi(33)
+    inner class PcInput(s: AccessibilityService) : AccessibilityService.InputMethod(s)
+
+    private fun ic(): AccessibilityService.InputMethod.AccessibilityInputConnection? =
+        if (Build.VERSION.SDK_INT >= 33) pcIme?.currentInputConnection else null
+
+    private fun sendKey(c: AccessibilityService.InputMethod.AccessibilityInputConnection, code: Int, meta: Int = 0) {
+        val t = SystemClock.uptimeMillis()
+        c.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, meta))
+        c.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0, meta))
+    }
+
+    private fun icSelected(c: AccessibilityService.InputMethod.AccessibilityInputConnection): String? {
+        return try {
+            val st = c.getSurroundingText(20000, 20000, 0) ?: return null
+            val a = minOf(st.selectionStart, st.selectionEnd)
+            val b = maxOf(st.selectionStart, st.selectionEnd)
+            if (a < 0 || a == b || b > st.text.length) null else st.text.subSequence(a, b).toString()
+        } catch (e: Exception) { null }
+    }
+
     // ---------------------------------------------------------------- keyboard
     private fun editNode(): AccessibilityNodeInfo? {
-        val r = rootInActiveWindow ?: return null
-        val n = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        if (!n.isEditable) return null
+        var n: AccessibilityNodeInfo? = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (n == null) {
+            try {
+                for (w in windows) {
+                    n = w.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                    if (n != null) break
+                }
+            } catch (e: Exception) { }
+        }
+        if (n == null) return null
+        val canSet = n.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+        if (!n.isEditable && !canSet) return null
         n.refresh()
         return n
     }
@@ -432,16 +476,36 @@ class RemoteInputService : AccessibilityService() {
 
     private fun typeText(s: String) {
         if (s.isEmpty()) return
+        val c = ic()
+        if (c != null) { c.commitText(s, 1, null); return }
         val n = editNode() ?: return
         val (t, a, b) = state(n)
         applyText(n, t.substring(0, a) + s + t.substring(b), a + s.length)
     }
 
-    private fun pressKey(k: String) {
+    private fun pressKey(k: String, shift: Boolean = false) {
         when (k) {
             "Escape" -> { performGlobalAction(GLOBAL_ACTION_BACK); return }
             "PageUp" -> { handleWheel(0f, 3f); return }
             "PageDown" -> { handleWheel(0f, -3f); return }
+        }
+        val c = ic()
+        if (c != null) {
+            if (k == "Enter" && shift) { c.commitText("\n", 1, null); return }
+            val code = when (k) {
+                "Backspace" -> KeyEvent.KEYCODE_DEL
+                "Delete" -> KeyEvent.KEYCODE_FORWARD_DEL
+                "Left" -> KeyEvent.KEYCODE_DPAD_LEFT
+                "Right" -> KeyEvent.KEYCODE_DPAD_RIGHT
+                "Up" -> KeyEvent.KEYCODE_DPAD_UP
+                "Down" -> KeyEvent.KEYCODE_DPAD_DOWN
+                "Home" -> KeyEvent.KEYCODE_MOVE_HOME
+                "End" -> KeyEvent.KEYCODE_MOVE_END
+                "Enter" -> KeyEvent.KEYCODE_ENTER
+                "Tab" -> KeyEvent.KEYCODE_TAB
+                else -> 0
+            }
+            if (code != 0) { sendKey(c, code, if (shift) KeyEvent.META_SHIFT_ON else 0); return }
         }
         val n = editNode() ?: return
         val (t, a, b) = state(n)
@@ -467,6 +531,27 @@ class RemoteInputService : AccessibilityService() {
     }
 
     private fun combo(k: String) {
+        val c = ic()
+        if (c != null) {
+            when (k) {
+                "selall" -> { if (!c.performContextMenuAction(android.R.id.selectAll)) sendKey(c, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON); return }
+                "paste" -> {
+                    val pc = clipFromPc
+                    if (pc != null && !clipDirty) c.commitText(pc, 1, null)
+                    else if (!c.performContextMenuAction(android.R.id.paste)) sendKey(c, KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON)
+                    return
+                }
+                "copy", "cut" -> {
+                    val sel = icSelected(c)
+                    selfClipAt = System.currentTimeMillis()
+                    val id = if (k == "cut") android.R.id.cut else android.R.id.copy
+                    if (!c.performContextMenuAction(id))
+                        sendKey(c, if (k == "cut") KeyEvent.KEYCODE_X else KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON)
+                    if (sel != null) { clipFromPc = null; pushClip(sel) } else clipDirty = true
+                    return
+                }
+            }
+        }
         when (k) {
             "selall" -> { val n = editNode() ?: return; setSel(n, 0, nodeText(n).length) }
             "paste" -> {
