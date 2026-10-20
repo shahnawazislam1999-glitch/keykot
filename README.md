@@ -94,3 +94,11 @@ Push the PC's mouse off the right edge of the PC screen and the pointer appears 
 - **Clipboard:** copy on the PC, cross over (the text is copied to the tablet), Ctrl+V in any text field. Ctrl+C on the tablet sends the selection to the PC clipboard; the tablet clipboard is also sent when you cross back.
 - **Panic key:** SCROLL LOCK on the PC always returns the mouse and keyboard to the PC.
 - Code: `RemoteInputService.kt` (pointer overlay, gestures, typing, clipboard), `TabletLink.kt` (connection to the PC), `ClipReadActivity.kt`, `MouseShareActivity.kt`; PC side `PhoneDeck/tabletlink.py`.
+
+## v2.6: keep-alive for the PC mouse (never stops)
+- Permanent notification (foreground service) + CPU wake lock + Wi-Fi lock while "Use the PC mouse on this tablet" is on.
+- Heartbeat every 2 s: pings the PC, drops a silent link after 7 s, reconnects at once (0.5 s, 1 s, 1.5 s, then every 2 s forever), reconnects when Wi-Fi changes, and searches the network for the PC if its IP changed.
+- Restarts itself when killed or swiped from Recents (alarm watchdog every minute + immediate restart), and starts after a reboot.
+- Settings screen has **Battery: allow always active** and **Xiaomi: Autostart settings** buttons.
+- **Optional, strongest:** if HyperOS switches the accessibility service off, the app can switch it back on itself. Once, with the tablet connected by USB debugging (or Wireless debugging) from a PC with adb:
+  `adb shell pm grant com.phonedeck.app android.permission.WRITE_SECURE_SETTINGS`

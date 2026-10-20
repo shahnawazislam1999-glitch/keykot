@@ -9,6 +9,11 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.SystemClock
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Build
@@ -86,6 +91,52 @@ class RemoteInputService : AccessibilityService() {
 
     val isLinked: Boolean get() = link?.connected == true
 
+    // ---------------------------------------------------------------- keep-alive / reconnect
+    private var lastBeat = 0L
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+    private val finder: AutoFinder by lazy {
+        AutoFinder(this, { Prefs.of(this).getString("link", "") ?: "" }, { ip ->
+            val cur = Prefs.of(this).getString("link", "") ?: ""
+            if (cur.isNotEmpty()) {
+                val u = LinkUtil.withHost(cur, ip)
+                Prefs.of(this).edit().putString("link", u).apply()
+                LinkHistory.add(this, u)
+                link?.kick()
+            }
+        }, { })
+    }
+    private val selfBeat = object : Runnable {
+        override fun run() { heartbeat(); ui.postDelayed(this, 2000) }
+    }
+
+    /** Called every ~2 s (by [KeepAliveService] and by our own timer): ping, reconnect, find the PC if it moved. */
+    fun heartbeat() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastBeat < 1500L) return
+        lastBeat = now
+        val l = link ?: return
+        if (!Prefs.of(this).getBoolean("share_on", false)) return
+        l.tick()
+        if (l.connected) finder.reset() else finder.outage()
+    }
+
+    private fun registerNet() {
+        if (netCb != null) return
+        try {
+            val c = getSystemService(ConnectivityManager::class.java)
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    val caps = c.getNetworkCapabilities(network) ?: return
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                        ui.post { finder.networkChanged(); if (link?.connected != true) link?.kick() }
+                    }
+                }
+            }
+            c.registerNetworkCallback(NetworkRequest.Builder().build(), cb)
+            netCb = cb
+        } catch (e: Exception) { }
+    }
+
     // ---------------------------------------------------------------- lifecycle
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -94,6 +145,9 @@ class RemoteInputService : AccessibilityService() {
         cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         try { cm?.addPrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
         refreshScreen()
+        registerNet()
+        ui.removeCallbacks(selfBeat)
+        ui.postDelayed(selfBeat, 2000)
         applyPrefs()
     }
 
@@ -118,6 +172,9 @@ class RemoteInputService : AccessibilityService() {
 
     private fun shutdown() {
         exitRemote()
+        ui.removeCallbacks(selfBeat)
+        try { netCb?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (e: Exception) { }
+        netCb = null
         link?.stop()
         link = null
         try { cm?.removePrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
@@ -131,9 +188,11 @@ class RemoteInputService : AccessibilityService() {
             val l = link ?: TabletLink(this, ui, { onMsg(it) }, { onLinkState(it) }).also { link = it }
             l.start()
             if (l.connected) sendHello()
+            KeepAlive.start(this)
         } else {
             exitRemote()
             link?.stop()
+            KeepAlive.stop(this)
         }
     }
 

@@ -62,6 +62,12 @@ class MouseShareActivity : Activity() {
             isChecked = p.getBoolean("share_on", false)
             setOnCheckedChangeListener { _, on ->
                 p.edit().putBoolean("share_on", on).apply()
+                if (on) {
+                    if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                        requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+                    KeepAlive.start(this@MouseShareActivity)
+                } else KeepAlive.stop(this@MouseShareActivity)
                 RemoteInputService.applyPrefsNow()
                 refresh()
             }
@@ -78,11 +84,32 @@ class MouseShareActivity : Activity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         })
 
-        root.addView(label("2. Connect to the PC"))
+        root.addView(label("2. Keep it running forever (Xiaomi / HyperOS)"))
+        root.addView(button("Battery: allow always active") {
+            try {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            } catch (e: Exception) {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        })
+        root.addView(button("Xiaomi: Autostart settings") {
+            val tries = listOf(
+                android.content.ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+                android.content.ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings"))
+            var ok = false
+            for (c in tries) {
+                try { startActivity(Intent().setComponent(c)); ok = true; break } catch (e: Exception) { }
+            }
+            if (!ok) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        })
+        root.addView(label("Also: in Recents long-press PhoneDeck and tap the lock icon; in App info set Battery saver to \"No restrictions\". " +
+            "A permanent notification keeps the link alive: do not hide it.", 12f, 0xFF8B93A5.toInt()))
+
+        root.addView(label("3. Connect to the PC"))
         root.addView(label("Uses the same link as the keyboard screen. Connect there once (Paste & Connect) so the link is saved; " +
             "this feature then connects by itself in the background.", 12f, 0xFF8B93A5.toInt()))
 
-        root.addView(label("3. Which PC screen edge leads to the tablet?"))
+        root.addView(label("4. Which PC screen edge leads to the tablet?"))
         val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         val edges = listOf("right" to "Right", "left" to "Left", "top" to "Top", "bottom" to "Bottom")
         val cur = p.getString("pc_edge", "right")

@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
+import android.os.SystemClock
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,8 +17,10 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /**
- * Keeps a WebSocket open to the PC server (ws://host:port/tablet?key=...), reconnecting by itself.
- * The PC pushes mouse / keyboard / clipboard events through it; see PhoneDeck/tabletlink.py.
+ * Keeps a WebSocket open to the PC server (ws://host:port/tablet?key=...) and reconnects aggressively:
+ *  - retry after 0.5 s, 1 s, 1.5 s, then every 2 s, forever;
+ *  - [tick] (called every ~2 s by the keep-alive service) pings the PC and drops a link that went silent for 7 s;
+ *  - [kick] reconnects at once (network changed, PC moved, ...).
  * All callbacks run on [ui] (the main thread).
  */
 class TabletLink(
@@ -32,6 +35,9 @@ class TabletLink(
         private set
     private var conn = 0
     private var failures = 0
+    private var lastRx = 0L
+    private var lastAttempt = 0L
+    private val retryRun = Runnable { open() }
 
     fun start() {
         if (running) return
@@ -43,9 +49,34 @@ class TabletLink(
     fun stop() {
         running = false
         conn++
-        try { ws?.close(1000, null) } catch (e: Exception) { }
+        ui.removeCallbacks(retryRun)
+        try { ws?.cancel() } catch (e: Exception) { }
         ws = null
         setState(false)
+    }
+
+    /** Drop whatever we have and reconnect right now. */
+    fun kick() {
+        if (!running) return
+        conn++
+        ui.removeCallbacks(retryRun)
+        try { ws?.cancel() } catch (e: Exception) { }
+        ws = null
+        setState(false)
+        failures = 0
+        open()
+    }
+
+    /** Called about every 2 s: heartbeat while connected, safety net while not. */
+    fun tick() {
+        if (!running) return
+        val now = SystemClock.elapsedRealtime()
+        if (connected) {
+            send(JSONObject().put("t", "ping").put("ts", now))
+            if (now - lastRx > 7000L) kick()
+        } else if (now - lastAttempt > 6000L) {
+            kick()
+        }
     }
 
     fun send(o: JSONObject) { try { ws?.send(o.toString()) } catch (e: Exception) { } }
@@ -57,14 +88,15 @@ class TabletLink(
     private fun retry() {
         if (!running) return
         failures++
-        val wait = (1000L * failures).coerceAtMost(5000L)
-        ui.postDelayed({ open() }, wait)
+        val wait = (500L * failures).coerceAtMost(2000L)
+        ui.removeCallbacks(retryRun)
+        ui.postDelayed(retryRun, wait)
     }
 
     private fun client(): OkHttpClient {
         val b = OkHttpClient.Builder()
-            .pingInterval(8, TimeUnit.SECONDS)
-            .connectTimeout(4, TimeUnit.SECONDS)
+            .pingInterval(5, TimeUnit.SECONDS)
+            .connectTimeout(3, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
         try {
             val cm = ctx.getSystemService(ConnectivityManager::class.java)
@@ -85,10 +117,11 @@ class TabletLink(
 
     private fun open() {
         if (!running) return
+        lastAttempt = SystemClock.elapsedRealtime()
         val link = Prefs.of(ctx).getString("link", "") ?: ""
         val u = try { Uri.parse(link) } catch (e: Exception) { null }
         val host = u?.host
-        if (u == null || host.isNullOrBlank()) { failures = 3; retry(); return }
+        if (u == null || host.isNullOrBlank()) { retry(); return }
         val port = if (u.port > 0) u.port else 8080
         val key = u.getQueryParameter("key") ?: ""
         val url = "http://$host:$port/tablet?key=" + Uri.encode(key)
@@ -96,13 +129,25 @@ class TabletLink(
             Request.Builder().url(url).header("Origin", "http://$host:$port").build()
         } catch (e: Exception) { retry(); return }
         val my = ++conn
+        try { ws?.cancel() } catch (e: Exception) { }
         ws = client().newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                ui.post { if (my == conn && running) { failures = 0; setState(true) } }
+                ui.post {
+                    if (my == conn && running) {
+                        failures = 0
+                        lastRx = SystemClock.elapsedRealtime()
+                        setState(true)
+                    }
+                }
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val o = try { JSONObject(text) } catch (e: Exception) { return }
-                ui.post { if (my == conn && running) onMsg(o) }
+                ui.post {
+                    if (my == conn && running) {
+                        lastRx = SystemClock.elapsedRealtime()
+                        onMsg(o)
+                    }
+                }
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { lost(my) }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { lost(my) }
