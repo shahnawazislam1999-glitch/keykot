@@ -35,12 +35,8 @@ import androidx.core.content.ContextCompat
  * The switch in "PC mouse on this tablet" only turns it off when you switch it off yourself.
  */
 object KeepAlive {
-    /** On unless the user switched it off: a saved link is enough. */
-    fun wanted(ctx: Context): Boolean {
-        val p = Prefs.of(ctx)
-        return if (p.contains("share_on")) p.getBoolean("share_on", false)
-        else !(p.getString("link", "") ?: "").isBlank()
-    }
+    /** OFF by default: the PC mouse / background link only runs after the user switched it on (PC mouse screen). */
+    fun wanted(ctx: Context): Boolean = Prefs.of(ctx).getBoolean("share_on", false)
 
     fun start(ctx: Context) {
         val app = ctx.applicationContext

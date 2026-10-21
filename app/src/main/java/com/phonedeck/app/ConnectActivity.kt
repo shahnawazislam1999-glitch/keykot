@@ -120,7 +120,6 @@ class ConnectActivity : ComponentActivity() {
         LinkHistory.add(this, url)
         input.setText(url)
         // connect once, never again: the background link starts now and from then on after every reboot / network change
-        if (!pr.contains("share_on")) pr.edit().putBoolean("share_on", true).apply()
         if (KeepAlive.wanted(this)) {
             KeepAlive.start(this)
             LinkHub.ensure(this)

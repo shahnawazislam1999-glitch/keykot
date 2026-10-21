@@ -74,22 +74,32 @@ class RemoteInputService : AccessibilityService() {
     private var dragY = 0f
     private var curStroke: GestureDescription.StrokeDescription? = null
 
+    // carrying a file from the tablet to the PC (button held on a file, pointer pushed to the PC edge)
+    private var carrying = false
+    private var carryChip = false
+
     // wheel
     private var wheelDx = 0f
     private var wheelDy = 0f
     private var wheelBusy = false
 
     // clipboard
+    private var pendingSelPaste = 0L      // PC selection waiting for a tap on a text box (0 = none)
     private var clipFromPc: String? = null
     private var clipDirty = false
     private var selfClipAt = 0L
     private var lastSentClip = ""
+    private var syncedTs = 0L          // timestamp of the clipboard content the PC already has (or that came from the PC)
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         if (System.currentTimeMillis() - selfClipAt > 1500) {
             clipDirty = true
-            if (remote) ui.postDelayed({ pushTabletClipNow() }, 350)   // already on the PC before you even get there
+            // already on the PC before you even get there; also when copying by touch while the pointer is on the PC
+            if (remote || (LinkHub.connected && Prefs.of(this).getBoolean("clip_always", true)))
+                ui.postDelayed({ pushTabletClipNow() }, 350)
         }
     }
+
+    private fun clipTs(): Long = try { cm?.primaryClipDescription?.timestamp ?: 0L } catch (e: Exception) { 0L }
 
     val isLinked: Boolean get() = LinkHub.connected
 
@@ -105,6 +115,7 @@ class RemoteInputService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         try { cm?.addPrimaryClipChangedListener(clipListener) } catch (e: Exception) { }
+        syncedTs = clipTs()                  // what is on the clipboard now is not "new": do not send it to the PC
         refreshScreen()
         applyPrefs()
         LinkHub.onInputServiceChanged()      // the PC may now show a pointer here
@@ -182,7 +193,12 @@ class RemoteInputService : AccessibilityService() {
             "text" -> if (remote) typeText(o.optString("s"))
             "key" -> if (remote) pressKey(o.optString("k"), o.optBoolean("shift"))
             "combo" -> if (remote) combo(o.optString("k"))
-            "clip" -> setClipFromPc(o.optString("text"))
+            "clip" -> {
+                setClipFromPc(o.optString("text"))
+                // text that was selected on the PC: paste it into the next text box that is tapped here
+                pendingSelPaste = if (o.optBoolean("sel") && o.optString("text").isNotEmpty() &&
+                    Prefs.of(this).getBoolean("autopaste_sel", true)) System.currentTimeMillis() else 0L
+            }
             "pong" -> {}
         }
     }
@@ -204,6 +220,9 @@ class RemoteInputService : AccessibilityService() {
 
     private fun exitRemote() {
         remote = false
+        pendingSelPaste = 0L
+        carrying = false
+        FileSender.clear()
         cancelDrag()
         hideCursor()
         hideDragChip()
@@ -213,8 +232,10 @@ class RemoteInputService : AccessibilityService() {
     private fun leave() {
         val f = if (peerEdge == "left" || peerEdge == "right") cy / sh else cx / sw
         LinkHub.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
-        exitRemote()
+        // read the clipboard while the pointer overlay is still on screen (Android 14+ only lets an app that shows a window
+        // start the helper screen that reads it), then hide the pointer
         pushTabletClipNow()
+        exitRemote()
     }
 
     // ---------------------------------------------------------------- pointer
@@ -228,13 +249,54 @@ class RemoteInputService : AccessibilityService() {
                 "top" -> ry < -2f
                 else -> ry > sh + 1f
             }
-            if (out) { leave(); return }
+            if (out) {
+                if (carrying) {
+                    // files under the pointer: hand them to the PC (wait a moment if they are still being looked up)
+                    if (FileSender.capturing) { clampMove(rx, ry); return }
+                    val c = FileSender.cand
+                    carrying = false
+                    FileSender.clear()
+                    if (c != null) FileSender.begin(this, c)
+                }
+                leave(); return
+            }
         }
+        clampMove(rx, ry)
+        if (flingMode && dragging && trail.size < 400) trail.add(floatArrayOf(cx, cy, (System.currentTimeMillis() - downT).toFloat()))
+        if (lDown && !dragging && !carrying && hypot(cx - downX, cy - downY) > 10f * resources.displayMetrics.density) {
+            if ((FileSender.capturing || FileSender.cand != null) && headingToPc()) { carrying = true; carryChip = false } else startDrag()
+        }
+        if (carrying && !FileSender.capturing) {
+            if (FileSender.cand == null) { carrying = false; hideDragChip(); startDrag() }     // nothing to carry: an ordinary drag
+            else if (!carryChip) { carryChip = true; showDragChip(carryLabel()) }
+        }
+        if (dragging) pump()
+    }
+
+    private fun clampMove(rx: Float, ry: Float) {
         cx = rx.coerceIn(0f, (sw - 1).toFloat())
         cy = ry.coerceIn(0f, (sh - 1).toFloat())
         moveCursor()
-        if (lDown && !dragging && hypot(cx - downX, cy - downY) > 10f * resources.displayMetrics.density) startDrag()
-        if (dragging) pump()
+    }
+
+    /** Is the pointer moving (since the button went down) mostly towards the edge that leads back to the PC? */
+    private fun headingToPc(): Boolean {
+        val dx = cx - downX
+        val dy = cy - downY
+        val len = hypot(dx, dy)
+        if (len < 1f) return false
+        val toward = when (peerEdge) {
+            "left" -> -dx
+            "right" -> dx
+            "top" -> -dy
+            else -> dy
+        }
+        return toward / len > 0.35f
+    }
+
+    private fun carryLabel(): String {
+        val c = FileSender.cand ?: return "\uD83D\uDCC4"
+        return if (c.top.size == 1) "\uD83D\uDCC4 " + c.top[0] else "\uD83D\uDCC4 " + c.top.size + " items"
     }
 
     private fun handleButton(b: String, down: Boolean) {
@@ -248,16 +310,34 @@ class RemoteInputService : AccessibilityService() {
     }
 
     private fun leftDown() {
-        lDown = true; dragging = false; dragEnding = false
+        lDown = true; dragging = false; dragEnding = false; carrying = false
         downT = System.currentTimeMillis(); downX = cx; downY = cy
+        if (FileSender.enabled(this)) FileSender.capture(this, cx.toInt(), cy.toInt()) else FileSender.clear()
     }
 
     private fun leftUp() {
         if (!lDown) return
         lDown = false
+        if (carrying) {                                   // let go on the tablet: the files stay where they are
+            carrying = false
+            FileSender.clear()
+            hideDragChip()
+            return
+        }
+        if (dragging && flingMode) { flingNow(); return }
         if (dragging) { dragEnding = true; pump(); return }
         val held = System.currentTimeMillis() - downT
         gestureAt(downX, downY, if (held >= 500) 700L else 50L)
+        if (pendingSelPaste != 0L && held < 500) {
+            val stamp = pendingSelPaste
+            ui.postDelayed({
+                // a text box got focus from that tap: put the selected PC text in it (once)
+                if (pendingSelPaste == stamp && System.currentTimeMillis() - stamp < 120_000 && (ic() != null || editNode() != null)) {
+                    pendingSelPaste = 0L
+                    combo("paste")
+                }
+            }, 500)
+        }
     }
 
     private fun gestureAt(x: Float, y: Float, dur: Long) {
@@ -270,15 +350,47 @@ class RemoteInputService : AccessibilityService() {
 
     private var holdDrag = false
 
+    // quick swipe (button down, move at once, release): recorded while the button is held and replayed as ONE real swipe on release,
+    // so home screen pages, the app drawer and lists slide and fling smoothly like with a finger
+    private var flingMode = false
+    private val trail = ArrayList<FloatArray>()      // x, y, time
+
     private fun startDrag() {
         dragging = true; dragEnding = false; pumpBusy = false
         dragX = downX; dragY = downY; curStroke = null
         // held still for a moment before moving = long-press, then drag: selects text (and moves selection handles)
         holdDrag = System.currentTimeMillis() - downT >= 400L
+        flingMode = !holdDrag
+        trail.clear()
+        if (flingMode) trail.add(floatArrayOf(downX, downY, 0f))
+    }
+
+    /** Replays the recorded movement as a single swipe with the same speed (released = the pages slide). */
+    private fun flingNow() {
+        val pts = ArrayList(trail)
+        trail.clear()
+        flingMode = false; dragging = false; dragEnding = false; lDown = false; curStroke = null
+        if (pts.size < 2) return
+        val first = pts.first()
+        val last = pts.last()
+        if (hypot(last[0] - first[0], last[1] - first[1]) < 6f * resources.displayMetrics.density) return
+        val path = Path().apply {
+            moveTo(first[0], first[1])
+            val step = maxOf(1, pts.size / 12)
+            var i = step
+            while (i < pts.size - 1) { lineTo(pts[i][0], pts[i][1]); i += step }
+            lineTo(last[0], last[1])
+        }
+        val dur = (last[2] - pts[1][2] + 16f).toLong().coerceIn(60L, 600L)   // from the first move, not from the press
+        try {
+            dispatchGesture(GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, dur)).build(), null, null)
+        } catch (e: Exception) { }
     }
 
     /** Streams the drag as a chain of continued strokes (one in flight at a time). */
     private fun pump() {
+        if (flingMode) return
         if (!dragging || pumpBusy) return
         val tx = cx
         val ty = cy
@@ -312,10 +424,12 @@ class RemoteInputService : AccessibilityService() {
     }
 
     private fun finishDrag() {
+        flingMode = false
         dragging = false; dragEnding = false; pumpBusy = false; curStroke = null; lDown = false
     }
 
     private fun cancelDrag() {
+        if (flingMode) { flingNow(); return }
         if (dragging && !pumpBusy) { dragEnding = true; pump() } else if (dragging) dragEnding = true
         lDown = false
     }
@@ -569,6 +683,7 @@ class RemoteInputService : AccessibilityService() {
      * and, when [autoPaste] is on and a text box is focused (ChatGPT's message box, a search field...), paste it right away.
      */
     fun onSnipClip(autoPaste: Boolean) {
+        syncedTs = maxOf(syncedTs, clipTs())
         clipFromPc = null
         clipDirty = false
         selfClipAt = System.currentTimeMillis()
@@ -585,12 +700,17 @@ class RemoteInputService : AccessibilityService() {
         lastSentClip = text
         selfClipAt = System.currentTimeMillis()
         try { cm?.setPrimaryClip(ClipData.newPlainText("PC", text)) } catch (e: Exception) { }
+        syncedTs = maxOf(syncedTs, clipTs())
     }
 
     private fun readClipSafe(): String? = try {
         val c = cm?.primaryClip
-        if (c != null && c.itemCount > 0) c.getItemAt(0).coerceToText(this)?.toString() else null
+        if (c != null && c.itemCount > 0 && isTextClip(c.description)) c.getItemAt(0).coerceToText(this)?.toString() else null
     } catch (e: Exception) { null }
+
+    private fun isTextClip(d: android.content.ClipDescription?): Boolean =
+        d == null || d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) ||
+            d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML)
 
     private fun pushClip(t: String) {
         clipDirty = false
@@ -602,9 +722,12 @@ class RemoteInputService : AccessibilityService() {
 
     /** Get the tablet's clipboard text to the PC now (Android only lets a focused app read it, so a blink-length helper screen does it). */
     private fun pushTabletClipNow() {
-        if (!clipDirty) return
+        // something new on the tablet clipboard? (the flag can be missed, the clipboard's own timestamp cannot)
+        if (!clipDirty && clipTs() <= syncedTs) return
+        val d = try { cm?.primaryClipDescription } catch (e: Exception) { null }
+        if (d != null && !isTextClip(d)) { clipDirty = false; syncedTs = maxOf(syncedTs, clipTs()); return }   // a picture / file, not text
         val t = readClipSafe()
-        if (t != null) { pushClip(t); return }
+        if (t != null) { syncedTs = maxOf(syncedTs, clipTs()); pushClip(t); return }
         try {
             startActivity(Intent(this, ClipReadActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
@@ -613,7 +736,7 @@ class RemoteInputService : AccessibilityService() {
 
     /** Called by [ClipReadActivity] (it briefly has focus, so Android lets it read the clipboard). */
     fun onClipRead(text: String?) {
-        ui.post { if (text != null) pushClip(text) }
+        ui.post { if (text != null) { syncedTs = maxOf(syncedTs, clipTs()); pushClip(text) } }
     }
 
     // ---------------------------------------------------------------- pointer overlay
