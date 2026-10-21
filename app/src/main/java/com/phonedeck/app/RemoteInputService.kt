@@ -231,10 +231,16 @@ class RemoteInputService : AccessibilityService() {
 
     private fun leave() {
         val f = if (peerEdge == "left" || peerEdge == "right") cy / sh else cx / sw
-        LinkHub.send(JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0)))
         // read the clipboard while the pointer overlay is still on screen (Android 14+ only lets an app that shows a window
-        // start the helper screen that reads it), then hide the pointer
+        // start the helper screen that reads it)
+        val fresh = clipDirty || clipTs() > syncedTs
         pushTabletClipNow()
+        val leaveMsg = JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0))
+        if (fresh && readClipSafe() == null) {
+            // text has to come through the helper screen: the pointer stays here for a moment so the PC gets the text first
+            // (a copy made earlier was already sent at copy time and does not wait)
+            ui.postDelayed({ LinkHub.send(leaveMsg) }, 450)
+        } else LinkHub.send(leaveMsg)
         exitRemote()
     }
 
@@ -615,7 +621,8 @@ class RemoteInputService : AccessibilityService() {
                     val sel = icSelected(c)
                     selfClipAt = System.currentTimeMillis()
                     sendKey(c, if (k == "cut") KeyEvent.KEYCODE_X else KeyEvent.KEYCODE_C, CTRL)
-                    if (sel != null) { clipFromPc = null; pushClip(sel) } else clipDirty = true
+                    clipFromPc = null
+                    if (sel != null) pushClip(sel) else { clipDirty = true; ui.postDelayed({ pushTabletClipNow() }, 350) }
                     return
                 }
             }
@@ -639,7 +646,8 @@ class RemoteInputService : AccessibilityService() {
                 val sel = selectedText(n)
                 selfClipAt = System.currentTimeMillis()
                 n.performAction(if (k == "cut") AccessibilityNodeInfo.ACTION_CUT else AccessibilityNodeInfo.ACTION_COPY)
-                if (sel != null) { clipFromPc = null; pushClip(sel) } else clipDirty = true
+                clipFromPc = null
+                if (sel != null) pushClip(sel) else { clipDirty = true; ui.postDelayed({ pushTabletClipNow() }, 350) }
             }
         }
     }
@@ -698,6 +706,7 @@ class RemoteInputService : AccessibilityService() {
         clipFromPc = text
         clipDirty = false
         lastSentClip = text
+        lastSentAt = System.currentTimeMillis()
         selfClipAt = System.currentTimeMillis()
         try { cm?.setPrimaryClip(ClipData.newPlainText("PC", text)) } catch (e: Exception) { }
         syncedTs = maxOf(syncedTs, clipTs())
@@ -712,10 +721,14 @@ class RemoteInputService : AccessibilityService() {
         d == null || d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) ||
             d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML)
 
+    private var lastSentAt = 0L
     private fun pushClip(t: String) {
         clipDirty = false
-        if (t.isEmpty() || t == lastSentClip) return
+        if (t.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (t == lastSentClip && now - lastSentAt < 1500) return      // the same copy reported twice; copying the same text again later still goes through
         lastSentClip = t
+        lastSentAt = now
         if (LinkHub.send(JSONObject().put("t", "clip").put("text", t.take(100_000))))
             ui.post { try { android.widget.Toast.makeText(this, "Copied to the PC clipboard: Ctrl+V there", android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) { } }
     }
@@ -735,8 +748,15 @@ class RemoteInputService : AccessibilityService() {
     }
 
     /** Called by [ClipReadActivity] (it briefly has focus, so Android lets it read the clipboard). */
+    private var clipRetry = 0
     fun onClipRead(text: String?) {
-        ui.post { if (text != null) { syncedTs = maxOf(syncedTs, clipTs()); pushClip(text) } }
+        ui.post {
+            if (text != null) { clipRetry = 0; syncedTs = maxOf(syncedTs, clipTs()); pushClip(text) }
+            else if (clipRetry < 2 && (clipDirty || clipTs() > syncedTs)) {
+                clipRetry++
+                ui.postDelayed({ pushTabletClipNow() }, 500)         // the helper screen never got focus: try again
+            } else { clipRetry = 0 }
+        }
     }
 
     // ---------------------------------------------------------------- pointer overlay

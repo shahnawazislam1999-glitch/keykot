@@ -104,8 +104,34 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
     private fun hideLmrOn() = Prefs.of(this).getBoolean("hidelmr", false)
 
     private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
+        // every picked file: a multi-selection arrives as ClipData, a single pick as data
+        var picked: Array<Uri>? = null
+        val d = r.data
+        if (r.resultCode == RESULT_OK && d != null) {
+            val cd = d.clipData
+            if (cd != null && cd.itemCount > 0) {
+                val list = ArrayList<Uri>()
+                for (i in 0 until cd.itemCount) cd.getItemAt(i).uri?.let { list.add(it) }
+                if (list.isNotEmpty()) picked = list.toTypedArray()
+            } else {
+                d.data?.let { picked = arrayOf(it) }
+            }
+        }
+        fileCb?.onReceiveValue(picked)
         fileCb = null
+    }
+
+    /** Files tab "+ Files": the system picker with multi-select on (long-press a file, then tap more). Folders / other modes keep the default intent. */
+    private fun buildPicker(params: WebChromeClient.FileChooserParams): Intent {
+        if (params.mode != WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) return params.createIntent()
+        val types = params.acceptTypes?.filter { it.isNotBlank() && it.contains("/") }.orEmpty()
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (types.size > 1) { i.type = "*/*"; i.putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray()) }
+        else i.type = types.firstOrNull() ?: "*/*"
+        return i
     }
 
     private val retryRun = Runnable {
@@ -228,7 +254,7 @@ class DeckActivity : ComponentActivity(), ConnectionGuard.Listener, Downloader.L
                 fileCb?.onReceiveValue(null)
                 fileCb = cb
                 return try {
-                    chooser.launch(params.createIntent()); true
+                    chooser.launch(buildPicker(params)); true
                 } catch (e: Exception) {
                     fileCb = null; false
                 }
