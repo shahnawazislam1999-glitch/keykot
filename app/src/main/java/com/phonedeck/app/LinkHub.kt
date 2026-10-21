@@ -145,6 +145,7 @@ object LinkHub {
             "drag" -> if (a != null) FileReceiver.onDrag(a, o)
             "drop" -> if (a != null) FileReceiver.onDrop(a)
             "dragend" -> if (a != null) FileReceiver.onDragEnd(a)
+            "tsaved" -> if (a != null) FileSender.onSaved(a, o)
             "pong" -> {}
             else -> RemoteInputService.instance?.onHubMessage(o)
         }
@@ -176,7 +177,8 @@ object LinkHub {
         l.send(JSONObject().put("t", "hello").put("w", w).put("h", h)
             .put("fd", true).put("inp", RemoteInputService.instance != null))
         l.send(JSONObject().put("t", "cfg").put("edge", p.getString("pc_edge", "right"))
-            .put("on", KeepAlive.wanted(a)).put("filedrag", FileReceiver.enabled(a)))
+            .put("on", KeepAlive.wanted(a)).put("filedrag", FileReceiver.enabled(a))
+            .put("autocopy", p.getBoolean("pc_autocopy", true)))
     }
 
     /** The accessibility service came or went: the PC must know whether a pointer can be shown. */

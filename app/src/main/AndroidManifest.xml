@@ -27,6 +27,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- optional, granted once over adb: lets the app switch its accessibility service back on if HyperOS turns it off -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- files dragged from the tablet to the PC: finds the dragged file by name on shared storage (granted by the user in Settings) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <application

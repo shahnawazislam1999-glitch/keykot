@@ -137,3 +137,13 @@ The PC replaces a dead link immediately when the tablet comes back and drops a s
 **Opening the app never asks to connect again.** Reopening PhoneDeck (from Recents, after Android closed it in the background, after a reboot) goes straight into the deck with the saved link. The start screen only stays when you disconnect yourself (Change link, or Back twice); pressing Connect again re-enables it.
 
 **Tablet text -> PC.** Select text with the PC mouse: hold the left button still for half a second on the text, then drag (long-press + drag = selection). Press **Ctrl+C** on the PC keyboard (it taps the selection toolbar's Copy), or use the app's own Copy. The text goes to the PC clipboard within a moment (a small "Copied to the PC clipboard" message appears); move the mouse to the PC and press Ctrl+V. Needs "Show over other apps" allowed for the invisible helper screen that reads the clipboard.
+
+## Mouse swipe (v2.9)
+- Hold the left button, move at once, release: the movement is replayed as one real swipe, so home screen pages and the app drawer slide and fling smoothly. Hold still 0.4 s before moving to get the old live drag (text selection).
+
+## Tablet -> PC (v2.9)
+- **Files:** with the PC mouse on the tablet, hold the left button on a file in your file manager, move towards the PC edge and push through it: the file uploads to the PC at once; let go of the button on the PC and it lands in the Explorer folder under the pointer (Desktop, or Downloads\PhoneDeck). Select several files first to send them together. Folders are sent with their content. Needs Settings > "Allow All files access" (PC mouse screen) and Android 11+. The file is found by the name the file manager shows (newest match wins). Code: `FileSender.kt`, `tabletlink.py` (`tdrag`/`tdone`/`tsaved`), `server.py` (`/tupload`).
+- **Text:** copy on the tablet (touch or Ctrl+C) and the text goes to the PC clipboard right away; Ctrl+V on the PC. Switch in the PC mouse screen: "Send text I copy on the tablet to the PC clipboard at once".
+
+## Selected PC text -> tablet (v2.9)
+Select text on the PC with the mouse (no Ctrl+C), push the pointer to the tablet: the selection is copied automatically while crossing and arrives on the tablet clipboard; tap a text box there and it is pasted (Ctrl+V works too). Not used in console / Explorer windows. Both parts have switches on the PC mouse screen. Dragging the selected text itself across is not used because dragging a selection to the screen edge is a normal PC action.

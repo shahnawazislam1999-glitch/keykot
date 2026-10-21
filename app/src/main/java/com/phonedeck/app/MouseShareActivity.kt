@@ -89,6 +89,46 @@ class MouseShareActivity : Activity() {
         }
         root.addView(fd)
 
+        val td = Switch(this).apply {
+            text = "Drag files from this tablet to the PC (hold the mouse on a file, push to the PC edge, let go on the PC)"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("tabletdrag", true)
+            setOnCheckedChangeListener { _, on -> p.edit().putBoolean("tabletdrag", on).apply() }
+        }
+        root.addView(td)
+        root.addView(button("Allow \"All files access\" (needed to send files from the tablet)") {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (e: Exception) {
+                try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (x: Exception) { }
+            }
+        })
+        root.addView(label("Needs Android 11+. The files are found by the name your file manager shows; folders are sent with their content. " +
+            "On the PC they land in the Explorer folder under the pointer, on the Desktop, or in Downloads\\PhoneDeck.", 12f, 0xFF8B93A5.toInt()))
+
+        val sc = Switch(this).apply {
+            text = "Text selected on the PC: copy it automatically when the pointer crosses to the tablet"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("pc_autocopy", true)
+            setOnCheckedChangeListener { _, on -> p.edit().putBoolean("pc_autocopy", on).apply(); LinkHub.sendHello() }
+        }
+        root.addView(sc)
+        val sp = Switch(this).apply {
+            text = "...and paste it into the next text box I tap on the tablet"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("autopaste_sel", true)
+            setOnCheckedChangeListener { _, on -> p.edit().putBoolean("autopaste_sel", on).apply() }
+        }
+        root.addView(sp)
+
+        val ca = Switch(this).apply {
+            text = "Send text I copy on the tablet to the PC clipboard at once (then Ctrl+V on the PC)"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("clip_always", true)
+            setOnCheckedChangeListener { _, on -> p.edit().putBoolean("clip_always", on).apply() }
+        }
+        root.addView(ca)
+
         val ap = Switch(this).apply {
             text = "PC screenshot: paste it into the focused text box (ChatGPT, search...)"
             setTextColor(0xFFE8EBF2.toInt())
