@@ -150,3 +150,6 @@ Select text on the PC with the mouse (no Ctrl+C), push the pointer to the tablet
 
 ## PC mouse is OFF by default (v2.9)
 Connecting the app no longer starts the PC mouse link. Switch it on in "PC mouse on this tablet" when you want it. The PC installs no mouse/keyboard hooks until the tablet reports it is on, and it only lets the pointer cross when the tablet's accessibility service (the pointer) is on, so the PC cursor can no longer vanish into a tablet that cannot show it.
+
+## Tablet text -> PC without the clipboard ("Send to PC")
+Android 10+ stops background apps reading the clipboard, so copy on the tablet could not always reach the PC. New way: select text (long-press + drag with the PC mouse, or by touch), open the toolbar menu (the three dots) and tap **Send to PC**. Android hands the selected text straight to PhoneDeck, which puts it on the PC clipboard; slide the mouse to the PC and press Ctrl+V. Works in Chrome, chats, notes and most apps. With the PC mouse on the tablet, Ctrl+C on the PC keyboard also clicks **Send to PC** when it is visible in the toolbar, otherwise it copies as before.

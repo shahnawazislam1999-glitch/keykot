@@ -83,6 +83,22 @@
             android:exported="true"
             android:label="PC mouse on this tablet" />
 
+        <!-- "Send to PC" in the text-selection toolbar of other apps: gets the selected text directly -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:exported="true"
+            android:label="@string/send_to_pc"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- invisible, lives a split second: reads the clipboard for the PC -->
         <activity
             android:name=".ClipReadActivity"

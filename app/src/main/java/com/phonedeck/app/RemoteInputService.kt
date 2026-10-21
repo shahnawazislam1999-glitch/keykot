@@ -652,8 +652,33 @@ class RemoteInputService : AccessibilityService() {
         }
     }
 
+    /** Click a visible button / menu item by its label (selection toolbar of the app in front). */
+    private fun clickLabel(label: String): Boolean {
+        try {
+            for (w in windows) {
+                val root = w.root ?: continue
+                if (root.packageName?.toString() == packageName) continue      // not PhoneDeck's own "Send to PC" file button
+                for (n in root.findAccessibilityNodeInfosByText(label)) {
+                    var t: AccessibilityNodeInfo? = n
+                    while (t != null && !t.isClickable) t = t.parent
+                    if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                }
+            }
+        } catch (e: Exception) { }
+        return false
+    }
+
+    /** Selected text handed over by the "Send to PC" toolbar item ([ProcessTextActivity]): straight to the PC clipboard. */
+    fun sendSelection(t: String) {
+        ui.post {
+            lastSentClip = ""
+            pushClip(t)
+        }
+    }
+
     /** Text selected by long-press + drag (web pages, chats, articles): tap the "Copy" button of the floating selection toolbar. */
     private fun pressToolbarCopy(): Boolean {
+        if (clickLabel("Send to PC")) return true      // visible in the selection toolbar: the text goes to the PC without touching the clipboard
         return try {
             for (w in windows) {
                 val root = w.root ?: continue

@@ -2,4 +2,5 @@
     <string name="app_name">PhoneDeck</string>
     <string name="bad_link">That does not look like a link. Example: http://192.168.43.175:8080/?key=abc123</string>
     <string name="a11y_desc">Lets your PC mouse and keyboard control this tablet: it draws the pointer and performs taps, swipes and typing that come from the PC you linked with PhoneDeck.</string>
+    <string name="send_to_pc">Send to PC</string>
 </resources>
