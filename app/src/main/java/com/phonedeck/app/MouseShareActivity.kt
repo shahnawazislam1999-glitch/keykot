@@ -23,6 +23,7 @@ import android.widget.TextView
 class MouseShareActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var checks: TextView
+    private lateinit var diag: TextView
     private val ui = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() { refresh(); ui.postDelayed(this, 1000) }
@@ -96,13 +97,7 @@ class MouseShareActivity : Activity() {
             setOnCheckedChangeListener { _, on -> p.edit().putBoolean("tabletdrag", on).apply() }
         }
         root.addView(td)
-        root.addView(button("Allow \"All files access\" (needed to send files from the tablet)") {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-            } catch (e: Exception) {
-                try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (x: Exception) { }
-            }
-        })
+        root.addView(button("Allow \"All files access\" (needed to send files from the tablet)") { Background.requestAllFiles(this) })
         root.addView(label("Needs Android 11+. The files are found by the name your file manager shows; folders are sent with their content. " +
             "On the PC they land in the Explorer folder under the pointer, on the Desktop, or in Downloads\\PhoneDeck.", 12f, 0xFF8B93A5.toInt()))
 
@@ -136,6 +131,36 @@ class MouseShareActivity : Activity() {
             setOnCheckedChangeListener { _, on -> p.edit().putBoolean("snip_autopaste", on).apply() }
         }
         root.addView(ap)
+
+        root.addView(label("Send from the tablet to the PC - always works", 16f))
+        root.addView(label("Open any file manager / gallery, select files, tap Share and choose \"Send to PC (PhoneDeck)\": they land in " +
+            "Downloads\\PhoneDeck on the PC. The same Share button sends selected text to the PC clipboard. " +
+            "No pointer, no special permission needed.", 12f, 0xFF8B93A5.toInt()))
+        root.addView(button("Pick files to send to the PC now") {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            try { startActivityForResult(i, 21) } catch (e: Exception) { toast("No file picker found") }
+        })
+        root.addView(button("Send the tablet clipboard text to the PC now") {
+            val cm = getSystemService(android.content.ClipboardManager::class.java)
+            val c = try { cm?.primaryClip } catch (e: Exception) { null }
+            val t = if (c != null && c.itemCount > 0) c.getItemAt(0).coerceToText(this)?.toString() else null
+            if (t.isNullOrEmpty()) toast("Nothing to send: copy some text first")
+            else PcSend.text(this, t) { ok, why -> toast(if (ok) "Copied to the PC clipboard: Ctrl+V there" else "Could not reach the PC: $why"); refresh() }
+        })
+        root.addView(button("Send a test text to the PC clipboard") {
+            PcSend.text(this, "PhoneDeck test " + System.currentTimeMillis() / 1000) { ok, why ->
+                toast(if (ok) "Sent. Press Ctrl+V on the PC." else "Could not reach the PC: $why"); refresh()
+            }
+        })
+        root.addView(label("Tip: the PhoneDeck notification also has a \"Send clipboard to PC\" button: copy text, pull the notification down, tap it.",
+            12f, 0xFF8B93A5.toInt()))
+        if (Background.isXiaomi()) {
+            root.addView(button("Xiaomi / HyperOS: allow pop-ups while in the background") { Background.openMiuiPermissions(this) })
+        }
+        root.addView(label("What happened last", 14f))
+        diag = label("", 12f, 0xFF8B93A5.toInt())
+        root.addView(diag)
 
         root.addView(label("Background checklist (tap a line's button to fix it)"))
         checks = label("", 13f, 0xFFE8EBF2.toInt())
@@ -224,6 +249,7 @@ class MouseShareActivity : Activity() {
             LinkHub.connected -> "● Connected to the PC: push the mouse to the PC screen edge"
             else -> "● " + LinkHub.statusText(this)
         }
+        diag.text = "Clipboard: " + Diag.lastClip + "\nFile grab: " + Diag.lastGrab + "\nFile transfer: " + Diag.lastFile
         checks.text = Background.checklist(this).joinToString("\n") { (if (it.ok) "\u2714  " else "\u2718  ") + it.label }
     }
 
@@ -241,8 +267,28 @@ class MouseShareActivity : Activity() {
             "notify" -> Background.requestNotifications(this)
             "a11y" -> Background.openAccessibility(this)
             "overlay" -> Background.requestOverlay(this)
+            "files" -> Background.requestAllFiles(this)
             else -> startActivity(Intent(this, ConnectActivity::class.java))
         }
+    }
+
+    private fun toast(t: String) { android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_LONG).show() }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 21 || resultCode != RESULT_OK || data == null) return
+        val uris = ArrayList<Uri>()
+        val cd = data.clipData
+        if (cd != null) for (k in 0 until cd.itemCount) cd.getItemAt(k).uri?.let { uris.add(it) }
+        val single = data.data
+        if (single != null && single !in uris) uris.add(single)
+        if (uris.isEmpty()) return
+        val i = Intent(this, SendToPcActivity::class.java).setAction(Intent.ACTION_SEND_MULTIPLE)
+            .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        i.clipData = cd ?: android.content.ClipData.newRawUri("files", uris[0])
+        startActivity(i)
     }
 
     override fun onResume() { super.onResume(); ui.post(tick) }

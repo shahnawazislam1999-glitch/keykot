@@ -172,6 +172,11 @@ class KeepAliveService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val kick = PendingIntent.getBroadcast(this, 8, Intent(this, WatchdogReceiver::class.java).putExtra("kick", true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // one tap: copy text on the tablet, pull the notification down, tap this: it goes to the PC clipboard (works on every Android / HyperOS)
+        val clip = PendingIntent.getActivity(this, 12,
+            Intent(this, ClipReadActivity::class.java).putExtra("manual", true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, "keepalive")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("PhoneDeck")
@@ -179,6 +184,7 @@ class KeepAliveService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
+            .addAction(android.R.drawable.ic_menu_send, "Send clipboard to PC", clip)
             .addAction(android.R.drawable.ic_popup_sync, "Reconnect now", kick)
             .build()
     }

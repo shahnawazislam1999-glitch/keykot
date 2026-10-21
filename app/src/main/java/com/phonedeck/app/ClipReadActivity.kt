@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 
 /**
  * Invisible activity that lives for a split second. Android 10+ only lets the focused app read the
@@ -15,9 +16,11 @@ import android.os.Looper
 class ClipReadActivity : Activity() {
     private var done = false
     private val ui = Handler(Looper.getMainLooper())
+    private var manual = false          // started by the user ("Send clipboard to PC" in the notification): send it ourselves
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        manual = intent?.getBooleanExtra("manual", false) == true
         ui.postDelayed({ if (!done) { done = true; finishQuiet() } }, 2000)
     }
 
@@ -34,7 +37,17 @@ class ClipReadActivity : Activity() {
                         c.description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)))
                     text = c.getItemAt(0).coerceToText(this)?.toString()
             } catch (e: Exception) { }
-            RemoteInputService.instance?.onClipRead(text)
+            if (manual) {
+                val app = applicationContext
+                if (text.isNullOrEmpty()) {
+                    Diag.clip("send clipboard: nothing (or no text) on the clipboard")
+                    Toast.makeText(app, "Nothing to send: copy some text first", Toast.LENGTH_SHORT).show()
+                } else {
+                    PcSend.text(app, text) { ok, why ->
+                        Toast.makeText(app, if (ok) "Copied to the PC clipboard: Ctrl+V there" else "Could not reach the PC: $why", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } else RemoteInputService.instance?.onClipRead(text)
             finishQuiet()
         }
     }

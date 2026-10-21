@@ -218,30 +218,40 @@ class RemoteInputService : AccessibilityService() {
         showCursor()
     }
 
-    private fun exitRemote() {
+    private fun exitRemote(keepCursor: Boolean = false) {
         remote = false
         pendingSelPaste = 0L
         carrying = false
         FileSender.clear()
         cancelDrag()
-        hideCursor()
+        if (!keepCursor) hideCursor()
         hideDragChip()
         FileReceiver.onDragEnd(this)         // files carried over but not released: forget them
     }
 
     private fun leave() {
         val f = if (peerEdge == "left" || peerEdge == "right") cy / sh else cx / sw
-        // read the clipboard while the pointer overlay is still on screen (Android 14+ only lets an app that shows a window
-        // start the helper screen that reads it)
-        val fresh = clipDirty || clipTs() > syncedTs
-        pushTabletClipNow()
         val leaveMsg = JSONObject().put("t", "leave").put("f", f.toDouble().coerceIn(0.0, 1.0))
-        if (fresh && readClipSafe() == null) {
-            // text has to come through the helper screen: the pointer stays here for a moment so the PC gets the text first
-            // (a copy made earlier was already sent at copy time and does not wait)
-            ui.postDelayed({ LinkHub.send(leaveMsg) }, 450)
-        } else LinkHub.send(leaveMsg)
-        exitRemote()
+        val fresh = clipDirty || clipTs() > syncedTs
+        if (!fresh) {
+            LinkHub.send(leaveMsg)
+            exitRemote()
+            return
+        }
+        // Something new is on the tablet clipboard: hand it to the PC FIRST, then let the pointer go, so that Ctrl+V on the PC
+        // already finds the text. The pointer overlay stays on screen meanwhile (Android 14+ only lets an app that shows a window
+        // start the helper screen that reads the clipboard) and the PC mouse is not released for more than ~1.5 s.
+        exitRemote(keepCursor = true)
+        var gone = false
+        val go = Runnable {
+            if (!gone) {
+                gone = true
+                hideCursor()
+                LinkHub.send(leaveMsg)
+            }
+        }
+        ui.postDelayed(go, 1500)
+        pushTabletClipNow { ui.removeCallbacks(go); go.run() }
     }
 
     // ---------------------------------------------------------------- pointer
@@ -262,7 +272,10 @@ class RemoteInputService : AccessibilityService() {
                     val c = FileSender.cand
                     carrying = false
                     FileSender.clear()
-                    if (c != null) FileSender.begin(this, c)
+                    if (c != null) { if (!FileSender.begin(this, c)) hideDragChip() }
+                    else FileSender.hintNothingCarried(this)
+                } else if (lDown && !dragging && headingToPc()) {
+                    FileSender.hintNothingCarried(this)        // button held, pushed to the PC edge, but no file was recognised
                 }
                 leave(); return
             }
@@ -273,7 +286,7 @@ class RemoteInputService : AccessibilityService() {
             if ((FileSender.capturing || FileSender.cand != null) && headingToPc()) { carrying = true; carryChip = false } else startDrag()
         }
         if (carrying && !FileSender.capturing) {
-            if (FileSender.cand == null) { carrying = false; hideDragChip(); startDrag() }     // nothing to carry: an ordinary drag
+            if (FileSender.cand == null) { carrying = false; hideDragChip(); FileSender.hintNothingCarried(this); startDrag() }     // nothing to carry: an ordinary drag
             else if (!carryChip) { carryChip = true; showDragChip(carryLabel()) }
         }
         if (dragging) pump()
@@ -638,6 +651,11 @@ class RemoteInputService : AccessibilityService() {
                 } else n.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             }
             "copy", "cut" -> {
+                if (k == "copy") {
+                    // the highlighted text read straight from the screen: reaches the PC even if the clipboard cannot be read
+                    val picked = selectionFromTree()
+                    if (picked != null) { pushClip(picked); pressToolbarCopy(); return }
+                }
                 if (k == "copy" && pressToolbarCopy()) return
                 val r = rootInActiveWindow ?: return
                 val n = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -700,7 +718,34 @@ class RemoteInputService : AccessibilityService() {
         } catch (e: Exception) { false }
     }
 
+    /** Text that is highlighted in the app in front, read from the accessibility tree (no clipboard access needed). */
+    private fun selectionFromTree(): String? {
+        try {
+            val r = rootInActiveWindow ?: return null
+            for (f in intArrayOf(AccessibilityNodeInfo.FOCUS_INPUT, AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)) {
+                val n = r.findFocus(f) ?: continue
+                n.refresh()
+                val s = selectedText(n)
+                if (s != null) return s
+            }
+            return scanSelection(r, intArrayOf(800))
+        } catch (e: Exception) { return null }
+    }
+
+    private fun scanSelection(n: AccessibilityNodeInfo, budget: IntArray): String? {
+        if (budget[0]-- <= 0 || !n.isVisibleToUser) return null
+        val s = selectedText(n)
+        if (s != null) return s
+        for (i in 0 until n.childCount) {
+            val c = n.getChild(i) ?: continue
+            val sub = scanSelection(c, budget)
+            if (sub != null) return sub
+        }
+        return null
+    }
+
     private fun selectedText(n: AccessibilityNodeInfo): String? {
+        if (n.isPassword) return null
         val t = n.text?.toString() ?: return null
         var s = n.textSelectionStart
         var e = n.textSelectionEnd
@@ -754,33 +799,145 @@ class RemoteInputService : AccessibilityService() {
         if (t == lastSentClip && now - lastSentAt < 1500) return      // the same copy reported twice; copying the same text again later still goes through
         lastSentClip = t
         lastSentAt = now
-        if (LinkHub.send(JSONObject().put("t", "clip").put("text", t.take(100_000))))
-            ui.post { try { android.widget.Toast.makeText(this, "Copied to the PC clipboard: Ctrl+V there", android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) { } }
+        // over the live link; when that is down the text goes to the PC with one HTTP request instead
+        PcSend.text(this, t) { ok, _ ->
+            if (ok) try { android.widget.Toast.makeText(this, "Copied to the PC clipboard: Ctrl+V there", android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) { }
+        }
     }
 
-    /** Get the tablet's clipboard text to the PC now (Android only lets a focused app read it, so a blink-length helper screen does it). */
-    private fun pushTabletClipNow() {
+    // Android 10+ only lets the app that has INPUT FOCUS read the clipboard. Three ways to get focus for a split second, in this order:
+    //  1. this app already has focus (its own screen is in front): read directly;
+    //  2. a 1-pixel focusable overlay window of the accessibility service (no screen is started, so no "background start" block);
+    //  3. the invisible helper screen [ClipReadActivity] (Android 14+ / HyperOS can refuse to start it from the background).
+    // Share > PhoneDeck and "Send to PC" in the text toolbar need no clipboard access at all.
+    private class FocusProbe(ctx: android.content.Context, val onFocus: () -> Unit) : View(ctx) {
+        override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+            super.onWindowFocusChanged(hasWindowFocus)
+            if (hasWindowFocus) onFocus()
+        }
+    }
+
+    private class ClipRead(val text: String?, val worked: Boolean, val ts: Long)
+
+    private var probeBusy = false
+
+    private inner class ClipProbe(private val done: (ClipRead) -> Unit) {
+        private var finished = false
+        private val view = FocusProbe(this@RemoteInputService) { gotFocus() }
+        private val timeout = Runnable { finish(ClipRead(null, false, 0L)) }
+
+        fun start() {
+            if (probeBusy) { done(ClipRead(null, false, 0L)); return }
+            probeBusy = true
+            val lp = WindowManager.LayoutParams(1, 1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                PixelFormat.TRANSLUCENT)
+            lp.gravity = Gravity.TOP or Gravity.START
+            lp.x = 0; lp.y = 0
+            view.isFocusable = true
+            try { wm?.addView(view, lp) } catch (e: Exception) { finish(ClipRead(null, false, 0L)); return }
+            ui.postDelayed(timeout, 900)
+        }
+
+        private fun gotFocus() {
+            if (finished) return
+            var text: String? = null
+            var worked = false
+            var ts = 0L
+            try {
+                val m = cm
+                val c = m?.primaryClip
+                // null can mean "nothing copied" or "access denied": only the first one counts as a successful read
+                worked = c != null || m?.hasPrimaryClip() == false
+                if (c != null && c.itemCount > 0) {
+                    ts = try { c.description.timestamp } catch (e: Exception) { 0L }
+                    if (isTextClip(c.description)) text = c.getItemAt(0).coerceToText(this@RemoteInputService)?.toString()
+                }
+            } catch (e: Exception) { worked = false }
+            finish(ClipRead(text, worked, ts))
+        }
+
+        private fun finish(r: ClipRead) {
+            if (finished) return
+            finished = true
+            ui.removeCallbacks(timeout)
+            try { wm?.removeView(view) } catch (e: Exception) { }
+            probeBusy = false
+            done(r)
+        }
+    }
+
+    private var afterClip: (() -> Unit)? = null
+    private fun runAfter() { val a = afterClip; afterClip = null; a?.invoke() }
+
+    /**
+     * Gets the tablet's clipboard text to the PC now. [after] runs when that is done (or given up on after ~1 s), so that the
+     * pointer is only handed back to the PC once the text is there.
+     */
+    private fun pushTabletClipNow(after: (() -> Unit)? = null) {
         // something new on the tablet clipboard? (the flag can be missed, the clipboard's own timestamp cannot)
-        if (!clipDirty && clipTs() <= syncedTs) return
+        if (!clipDirty && clipTs() <= syncedTs) { after?.invoke(); return }
         val d = try { cm?.primaryClipDescription } catch (e: Exception) { null }
-        if (d != null && !isTextClip(d)) { clipDirty = false; syncedTs = maxOf(syncedTs, clipTs()); return }   // a picture / file, not text
+        if (d != null && !isTextClip(d)) {            // a picture / file, not text
+            clipDirty = false; syncedTs = maxOf(syncedTs, clipTs())
+            Diag.clip("the tablet clipboard holds a picture or file, not text")
+            after?.invoke(); return
+        }
         val t = readClipSafe()
-        if (t != null) { syncedTs = maxOf(syncedTs, clipTs()); pushClip(t); return }
+        if (t != null) { syncedTs = maxOf(syncedTs, clipTs()); pushClip(t); after?.invoke(); return }
+        afterClip = after
+        ClipProbe { r ->
+            when {
+                r.text != null -> {
+                    clipRetry = 0
+                    syncedTs = maxOf(syncedTs, r.ts)
+                    Diag.clip("read the clipboard through the focus window")
+                    pushClip(r.text)
+                    runAfter()
+                }
+                r.worked -> {                          // readable, but no text on it
+                    clipDirty = false
+                    syncedTs = maxOf(syncedTs, r.ts)
+                    runAfter()
+                }
+                else -> launchHelper()
+            }
+        }.start()
+    }
+
+    private fun launchHelper() {
         try {
             startActivity(Intent(this, ClipReadActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
-        } catch (e: Exception) { }
+        } catch (e: Exception) {
+            Diag.clip("Android refused to start the clipboard helper screen: " + (e.message ?: e.javaClass.simpleName))
+            runAfter(); return
+        }
+        if (afterClip != null) ui.postDelayed({
+            if (afterClip != null) {
+                Diag.clip("the clipboard helper screen did not answer in time (HyperOS: allow \"pop-ups in the background\")")
+                runAfter()
+            }
+        }, 1000)
     }
 
     /** Called by [ClipReadActivity] (it briefly has focus, so Android lets it read the clipboard). */
     private var clipRetry = 0
     fun onClipRead(text: String?) {
         ui.post {
-            if (text != null) { clipRetry = 0; syncedTs = maxOf(syncedTs, clipTs()); pushClip(text) }
-            else if (clipRetry < 2 && (clipDirty || clipTs() > syncedTs)) {
+            if (text != null) {
+                clipRetry = 0; syncedTs = maxOf(syncedTs, clipTs())
+                Diag.clip("read the clipboard through the helper screen")
+                pushClip(text); runAfter()
+            } else if (clipRetry < 1 && (clipDirty || clipTs() > syncedTs)) {
                 clipRetry++
-                ui.postDelayed({ pushTabletClipNow() }, 500)         // the helper screen never got focus: try again
-            } else { clipRetry = 0 }
+                ui.postDelayed({ pushTabletClipNow(afterClip) }, 400)         // the helper screen never got focus: try again
+            } else {
+                clipRetry = 0
+                Diag.clip("could not read the tablet clipboard: use Share > PhoneDeck instead")
+                runAfter()
+            }
         }
     }
 

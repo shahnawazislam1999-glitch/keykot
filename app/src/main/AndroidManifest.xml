@@ -83,6 +83,26 @@
             android:exported="true"
             android:label="PC mouse on this tablet" />
 
+        <!-- Share > "Send to PC (PhoneDeck)": files go to the PC folder, plain text to the PC clipboard. Always works. -->
+        <activity
+            android:name=".SendToPcActivity"
+            android:exported="true"
+            android:label="Send to PC (PhoneDeck)"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
         <!-- "Send to PC" in the text-selection toolbar of other apps: gets the selected text directly -->
         <activity
             android:name=".ProcessTextActivity"

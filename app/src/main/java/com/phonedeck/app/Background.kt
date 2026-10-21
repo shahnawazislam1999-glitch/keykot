@@ -49,6 +49,9 @@ object Background {
         return s.contains(ctx.packageName + "/") && s.contains("RemoteInputService")
     }
 
+    /** Sending files from the tablet needs "All files access" (Android 11+); older Android has no such switch. */
+    fun filesOk(ctx: Context): Boolean = Build.VERSION.SDK_INT < 30 || android.os.Environment.isExternalStorageManager()
+
     fun overlayOk(ctx: Context): Boolean = try { Settings.canDrawOverlays(ctx) } catch (e: Exception) { false }
 
     fun checklist(ctx: Context): List<Check> = listOf(
@@ -56,6 +59,7 @@ object Background {
         Check("Notifications allowed (keeps the service visible)", notificationsOk(ctx), "notify"),
         Check("Accessibility service on (PC mouse + keyboard on the tablet)", accessibilityOn(ctx), "a11y"),
         Check("Show over other apps (floating keyboard)", overlayOk(ctx), "overlay"),
+        Check("All files access (drag files from the tablet to the PC)", filesOk(ctx), "files"),
         Check("Link saved (connect once, never again)", (Prefs.of(ctx).getString("link", "") ?: "").isNotBlank(), "link")
     )
 
@@ -82,6 +86,29 @@ object Background {
         try {
             act.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + act.packageName)))
         } catch (e: Exception) { appInfo(act) }
+    }
+
+    fun requestAllFiles(act: Activity) {
+        try {
+            act.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + act.packageName)))
+        } catch (e: Exception) {
+            try { act.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (x: Exception) { appInfo(act) }
+        }
+    }
+
+    fun isXiaomi(): Boolean = (Build.MANUFACTURER ?: "").lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") }
+
+    /** Xiaomi / HyperOS: the page with "Display pop-up windows while running in the background" (needed for the clipboard helper screen). */
+    fun openMiuiPermissions(act: Activity): Boolean {
+        for (cls in listOf("com.miui.permcenter.permissions.PermissionsEditorActivity", "com.miui.permcenter.permissions.AppPermissionsEditorActivity")) {
+            try {
+                act.startActivity(Intent("miui.intent.action.APP_PERM_EDITOR").setClassName("com.miui.securitycenter", cls)
+                    .putExtra("extra_pkgname", act.packageName))
+                return true
+            } catch (e: Exception) { }
+        }
+        appInfo(act)
+        return false
     }
 
     fun openAccessibility(act: Activity) {

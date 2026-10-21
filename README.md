@@ -153,3 +153,9 @@ Connecting the app no longer starts the PC mouse link. Switch it on in "PC mouse
 
 ## Tablet text -> PC without the clipboard ("Send to PC")
 Android 10+ stops background apps reading the clipboard, so copy on the tablet could not always reach the PC. New way: select text (long-press + drag with the PC mouse, or by touch), open the toolbar menu (the three dots) and tap **Send to PC**. Android hands the selected text straight to PhoneDeck, which puts it on the PC clipboard; slide the mouse to the PC and press Ctrl+V. Works in Chrome, chats, notes and most apps. With the PC mouse on the tablet, Ctrl+C on the PC keyboard also clicks **Send to PC** when it is visible in the toolbar, otherwise it copies as before.
+
+## v2.10: tablet -> PC files and text (fixes)
+- **Always works:** in any file manager / gallery select files > Share > **Send to PC (PhoneDeck)** - they land in `Downloads\PhoneDeck` on the PC. Sharing selected text the same way puts it on the PC clipboard. Also in "PC mouse on this tablet": *Pick files to send*, *Send the tablet clipboard text to the PC now*, and the notification button **Send clipboard to PC**.
+- **Drag from the tablet to the PC:** hold the PC mouse on a file in the tablet's file manager, push to the PC edge, let go on the PC. The pointer overlay no longer hides the file manager from the lookup, truncated / combined names are handled, and "What happened last" in the PC mouse settings says why a grab failed. Needs "All files access" (now in the checklist).
+- **Copy on the tablet, paste on the PC:** the clipboard is read through a 1-pixel focus window (no helper screen needed), the text reaches the PC *before* the pointer is released, highlighted text is also read straight from the screen, and if the live link is down it is sent over HTTP. Xiaomi/HyperOS: use the "allow pop-ups in the background" button.
+- PC side: copy the new `server.py` and `tabletlink.py`, then run `stop-phonedeck.bat` and `start-lan.bat`.

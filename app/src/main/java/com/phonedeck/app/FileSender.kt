@@ -39,6 +39,10 @@ import java.util.concurrent.atomic.AtomicLong
  *     and answers "tsaved"; [onSaved] shows it.
  *
  * Needs "All files access" (Android 11+) to find the files by name. Folders are sent with their content.
+ *
+ * v2.10: the lookup ignores PhoneDeck's own pointer overlay (it used to hide the file manager underneath), tries every window under
+ * the pointer, copes with truncated / combined names, and every step writes a line to [Diag] (shown in the PC mouse settings).
+ * The always-working alternative is Share > PhoneDeck (see [PcSend] / [SendToPcActivity]).
  */
 object FileSender {
     private const val CH = "pd_transfer"
@@ -53,6 +57,7 @@ object FileSender {
         val failed = AtomicInteger(0)
         val sent = AtomicLong(0)
         @Volatile var lastNote = 0L
+        @Volatile var err = ""
     }
 
     private val ui = Handler(Looper.getMainLooper())
@@ -64,6 +69,7 @@ object FileSender {
         private set
     @Volatile var cand: Cand? = null
         private set
+    @Volatile private var lastHint = 0L
 
     fun hasAccess(): Boolean = Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
 
@@ -77,30 +83,66 @@ object FileSender {
         capturing = true
         findPool.execute {
             var r: Cand? = null
-            try { r = findAt(svc, x, y, t) } catch (e: Throwable) { }
-            if (t == token) { cand = r; capturing = false }
+            val tr = StringBuilder()
+            try { r = findAt(svc, x, y, t, tr) } catch (e: Throwable) { tr.append(" error: ").append(e.javaClass.simpleName) }
+            if (t == token) {
+                cand = r
+                capturing = false
+                if (r != null) {
+                    Diag.grab("grabbed " + r.top.take(3).joinToString(", ") + (if (r.top.size > 3) " +" + (r.top.size - 3) else "") +
+                        " (" + r.entries.size + " file(s)) - push the pointer to the PC edge")
+                } else {
+                    Diag.grab("no file under the pointer:" + tr.toString().take(300))
+                }
+            }
         }
     }
 
     fun clear() { token++; cand = null; capturing = false }
 
-    private fun findAt(svc: AccessibilityService, x: Int, y: Int, t: Int): Cand? {
+    /** The user is pushing something towards the PC edge but nothing is being carried: say why (at most every 20 s). */
+    fun hintNothingCarried(ctx: Context) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastHint < 20_000L) return
+        if (!Prefs.of(ctx).getBoolean("tabletdrag", true)) return
+        lastHint = now
+        val msg = if (!hasAccess()) "To send files to the PC: allow \"All files access\" in PhoneDeck > PC mouse settings"
+        else "No file found under the pointer. Use Share > PhoneDeck (Send to PC) for this one"
+        toast(ctx.applicationContext, msg)
+    }
+
+    private fun findAt(svc: AccessibilityService, x: Int, y: Int, t: Int, tr: StringBuilder): Cand? {
+        val own = svc.packageName
         val roots = ArrayList<AccessibilityNodeInfo>()
+        var seen = 0
         try {
             val ws = svc.windows.sortedByDescending { it.layer }
             for (w in ws) {
-                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue
+                seen++
+                // PhoneDeck's own pointer is an accessibility overlay on top of everything: it must not hide the app underneath
+                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD ||
+                    w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY ||
+                    w.type == AccessibilityWindowInfo.TYPE_SYSTEM) continue
                 val r = Rect(); w.getBoundsInScreen(r)
                 if (!r.contains(x, y)) continue
-                w.root?.let { roots.add(it) }
+                val root = w.root ?: continue
+                if (root.packageName?.toString() == own) continue
+                roots.add(root)
             }
         } catch (e: Exception) { }
-        if (roots.isEmpty()) svc.rootInActiveWindow?.let { roots.add(it) }
+        if (roots.isEmpty()) {
+            val a = svc.rootInActiveWindow
+            if (a != null && a.packageName?.toString() != own) roots.add(a)
+        }
+        tr.append(" windows=").append(seen).append(" tried=").append(roots.size)
+        var first = true
         for (root in roots) {
-            val chain = hit(root, x, y, intArrayOf(4000), t) ?: continue
-            val c = fromChain(svc, chain, t)
+            if (t != token) return null
+            val chain = hit(root, x, y, intArrayOf(4000), t)
+            if (chain == null) { tr.append(" [").append(root.packageName).append(": nothing at the point]"); continue }
+            val c = fromChain(svc, chain, t, first, tr)
             if (c != null) return c
-            break                                       // the top window under the pointer is not a file list
+            first = false
         }
         return null
     }
@@ -141,29 +183,60 @@ object FileSender {
 
     private fun nameLike(s: String) = s.length in 1..255 && !s.contains('\n') && !s.contains('/')
 
-    private fun fromChain(svc: AccessibilityService, chain: List<AccessibilityNodeInfo>, t: Int): Cand? {
+    private fun isEllipsized(s: String) = s.endsWith("…") || s.endsWith("...")
+
+    private fun stripEllipsis(s: String) = s.removeSuffix("…").removeSuffix("...").trimEnd()
+
+    /**
+     * Everything on an item that might be its file name. Some file managers put "name, size, date" into one description,
+     * so the text is also cut at the usual separators.
+     */
+    private fun candidates(tx: List<String>): List<String> {
+        val out = LinkedHashSet<String>()
+        for (s0 in tx) {
+            val s = s0.trim()
+            if (nameLike(s)) out.add(s)
+            for (part in s.split("\n", ", ", " | ", " • ", " · ", "，", "、")) {
+                val p = part.trim()
+                if (p != s && p.length >= 2 && nameLike(p)) out.add(p)
+            }
+            if (out.size >= 40) break
+        }
+        return out.toList()
+    }
+
+    private fun fromChain(svc: AccessibilityService, chain: List<AccessibilityNodeInfo>, t: Int, allowWalk: Boolean, tr: StringBuilder): Cand? {
         val ctx = svc.applicationContext
         val cache = HashMap<String, File?>()
-        var firstNames: List<String>? = null
+        val seenNames = LinkedHashSet<String>()
+        val walkNames = LinkedHashSet<String>()
         var levels = 0
+        var named = 0
         var i = chain.size - 1
         while (i >= 0 && levels < 8) {
             if (t != token) return null
             val a = chain[i]
             val tx = ArrayList<String>()
             if (!texts(a, tx, intArrayOf(40))) break            // too big: that is a list, not one item
-            val names = tx.filter { nameLike(it) }
+            val names = candidates(tx)
             if (names.isNotEmpty()) {
-                if (firstNames == null) firstNames = names
+                seenNames.addAll(names)
+                if (named < 2) walkNames.addAll(names)           // the first two levels that show text: used for the folder search
+                named++
                 var f: File? = null
                 for (n in names) { f = cache.getOrPut(n) { Resolver.fast(ctx, n) }; if (f != null) break }
+                if (f == null) for (n in names) {
+                    if (!isEllipsized(n)) continue
+                    f = Resolver.prefix(ctx, stripEllipsis(n)); if (f != null) break
+                }
                 if (f != null) return build(ctx, chain, i, a, f, cache, t)
             }
             levels++
             i--
         }
-        val names = firstNames ?: return null
-        val f = Resolver.walk(ctx, names.toSet(), t) ?: return null
+        if (seenNames.isNotEmpty()) tr.append(" names=").append(seenNames.take(6))
+        if (!allowWalk || walkNames.isEmpty()) return null
+        val f = Resolver.walk(ctx, walkNames, t) ?: return null
         return build(ctx, chain, -1, null, f, cache, t)
     }
 
@@ -180,7 +253,7 @@ object FileSender {
                 if (sib == item || files.size >= 100 || !isSel(sib)) continue
                 val tx = ArrayList<String>()
                 if (!texts(sib, tx, intArrayOf(40))) continue
-                for (n in tx.filter { nameLike(it) }) {
+                for (n in candidates(tx)) {
                     val f = cache.getOrPut(n) { Resolver.fast(ctx, n) }
                     if (f != null) { files.add(f); break }
                 }
@@ -207,14 +280,13 @@ object FileSender {
 
     /** Looks up a file or folder by its display name. */
     private object Resolver {
-        fun fast(ctx: Context, name: String): File? {
-            if (!FileSender.hasAccess()) return null
+        private fun query(ctx: Context, selection: String, args: Array<String>): File? {
             try {
                 @Suppress("DEPRECATION")
                 val data = MediaStore.MediaColumns.DATA
                 ctx.contentResolver.query(
                     MediaStore.Files.getContentUri("external"),
-                    arrayOf(data), MediaStore.MediaColumns.DISPLAY_NAME + "=?", arrayOf(name),
+                    arrayOf(data), selection, args,
                     MediaStore.MediaColumns.DATE_MODIFIED + " DESC")?.use { c ->
                     while (c.moveToNext()) {
                         val p = c.getString(0) ?: continue
@@ -226,9 +298,23 @@ object FileSender {
             return null
         }
 
+        fun fast(ctx: Context, name: String): File? {
+            if (!FileSender.hasAccess()) return null
+            return query(ctx, MediaStore.MediaColumns.DISPLAY_NAME + "=?", arrayOf(name))
+        }
+
+        /** A name the file manager cut short ("holiday_pho…"): the newest file that starts with it. */
+        fun prefix(ctx: Context, start: String): File? {
+            if (!FileSender.hasAccess() || start.length < 3) return null
+            val esc = start.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return query(ctx, MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? ESCAPE '\\'", arrayOf("$esc%"))
+        }
+
         /** Breadth-first search of shared storage (shallow first, at most ~1.5 s) for a file or folder with one of [names]. */
         fun walk(ctx: Context, names: Set<String>, t: Int): File? {
             if (!FileSender.hasAccess()) return null
+            val exact = names.filter { !FileSender.isEllipsized(it) }.toSet()
+            val starts = names.filter { FileSender.isEllipsized(it) }.map { FileSender.stripEllipsis(it) }.filter { it.length >= 3 }
             val end = SystemClock.elapsedRealtime() + 1500
             val queue = ArrayDeque<Pair<File, Int>>()
             queue.add(Pair(Environment.getExternalStorageDirectory(), 0))
@@ -240,7 +326,8 @@ object FileSender {
                 val kids = try { d.listFiles() } catch (e: Exception) { null } ?: continue
                 for (k in kids) {
                     seen++
-                    if (k.name in names && (best == null || k.lastModified() > best.lastModified())) best = k
+                    val hit = k.name in exact || starts.any { k.name.startsWith(it) }
+                    if (hit && (best == null || k.lastModified() > best.lastModified())) best = k
                     if (k.isDirectory && depth < 6 && !k.name.startsWith(".") && !(depth == 0 && k.name == "Android")) queue.add(Pair(k, depth + 1))
                 }
                 if (best != null) return best               // shallowest folder level that has a match
@@ -256,15 +343,16 @@ object FileSender {
         val link = Prefs.of(app).getString("link", "") ?: ""
         val u = try { Uri.parse(link) } catch (e: Exception) { null }
         val host = u?.host
-        if (u == null || host.isNullOrBlank()) return false
+        if (u == null || host.isNullOrBlank()) { Diag.file("cannot send: no PC link saved"); return false }
         val port = (if (u.port > 0) u.port else 8080) + 1
         val key = u.getQueryParameter("key") ?: ""
         val id = (System.currentTimeMillis() % 2_000_000_000L).toInt()
         val msg = JSONObject().put("t", "tdrag").put("id", id).put("n", c.entries.size)
             .put("names", JSONArray(c.top.take(500)))
-        if (!LinkHub.send(msg)) return false
+        if (!LinkHub.send(msg)) { Diag.file("cannot send: the link to the PC is down"); return false }
         val total = c.entries.sumOf { it.file.length() }
         val s = Send(id, c.entries.size, total)
+        Diag.file("uploading " + c.entries.size + " file(s) to the PC ...")
         toast(app, "Sending " + (if (c.top.size == 1) c.top[0] else c.top.size.toString() + " items") + " to the PC…")
         progress(app, s, c, true)
         for (e in c.entries) upPool.execute { upload(app, host, port, key, s, c, e) }
@@ -297,19 +385,27 @@ object FileSender {
                 if (!r.isSuccessful) throw IOException("PC answered HTTP " + r.code)
                 ok = true
             }
-        } catch (x: Exception) { }
+        } catch (x: Exception) {
+            if (s.err.isEmpty()) s.err = e.rel + ": " + (x.message ?: x.javaClass.simpleName)
+        }
         if (!ok) s.failed.incrementAndGet()
         if (s.finished.incrementAndGet() == s.total) {
             LinkHub.send(JSONObject().put("t", "tdone").put("id", s.id).put("ok", s.failed.get() == 0))
             try { app.getSystemService(NotificationManager::class.java).cancel(NOTE) } catch (x: Exception) { }
-            if (s.failed.get() > 0) toast(app, s.failed.get().toString() + " file(s) could not be sent to the PC")
+            if (s.failed.get() > 0) {
+                Diag.file(s.failed.get().toString() + " of " + s.total + " file(s) failed: " + s.err)
+                toast(app, s.failed.get().toString() + " file(s) could not be sent to the PC: " + s.err)
+            } else Diag.file("uploaded " + s.total + " file(s); waiting for the PC to drop them")
         }
     }
 
     // ------------------------------------------------------------------ 3. the PC dropped them
     fun onSaved(ctx: Context, o: JSONObject) {
         val app = ctx.applicationContext
-        if (o.optBoolean("ok", false)) toast(app, "Sent to the PC: " + o.optString("dir", ""))
+        if (o.optBoolean("ok", false)) {
+            Diag.file("PC saved " + o.optInt("n", 0) + " file(s) in " + o.optString("dir", ""))
+            toast(app, "Sent to the PC: " + o.optString("dir", ""))
+        } else Diag.file("the PC could not save the files")
     }
 
     // ------------------------------------------------------------------ helpers
