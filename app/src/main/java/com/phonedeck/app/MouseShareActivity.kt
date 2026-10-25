@@ -132,6 +132,17 @@ class MouseShareActivity : Activity() {
         }
         root.addView(ap)
 
+        val mt = Switch(this).apply {
+            text = "Mirror my typing to the PC: type in any text box with the Google keyboard and it is typed on the PC too"
+            setTextColor(0xFFE8EBF2.toInt())
+            isChecked = p.getBoolean("mirror_typing", false)
+            setOnCheckedChangeListener { _, on -> p.edit().putBoolean("mirror_typing", on).apply(); if (!on) MirrorSender.stop() }
+        }
+        root.addView(mt)
+        root.addView(label("Off by default. Needs the PC link ON and connected, and this app's accessibility service enabled. " +
+            "Password boxes and PhoneDeck's own screens are never sent. It types at the PC's cursor, so click the PC text box first; " +
+            "switch it off when you do not want what you type here to appear on the PC.", 12f, 0xFF8B93A5.toInt()))
+
         root.addView(label("Send from the tablet to the PC - always works", 16f))
         root.addView(label("Open any file manager / gallery, select files, tap Share and choose \"Send to PC (PhoneDeck)\": they land in " +
             "Downloads\\PhoneDeck on the PC. The same Share button sends selected text to the PC clipboard. " +

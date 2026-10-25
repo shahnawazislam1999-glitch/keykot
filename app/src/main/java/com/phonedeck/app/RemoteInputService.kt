@@ -121,7 +121,49 @@ class RemoteInputService : AccessibilityService() {
         LinkHub.onInputServiceChanged()      // the PC may now show a pointer here
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    // ---------------------------------------------------------------- tablet typing -> PC ("mirror typing")
+    // With the switch on (Settings > PC link > "Mirror my typing to the PC"), whatever is typed into a text box of any app
+    // (Gboard, voice typing, paste...) is also typed on the PC: the text change is turned into "n x Backspace + new text"
+    // and sent to the PC by [MirrorSender] (no PC update needed). Password boxes and PhoneDeck's own screens are never mirrored.
+    private var mirrorKey = ""
+    private var mirrorText = ""
+    private var mirrorAt = 0L
+    private var pcInputAt = 0L          // when the PC itself last typed / pasted here (those changes must not echo back)
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) return
+        try { mirrorTyping(event) } catch (e: Exception) { }
+    }
+
+    private fun mirrorTyping(ev: AccessibilityEvent) {
+        if (!Prefs.of(this).getBoolean("mirror_typing", false)) { mirrorKey = ""; return }
+        if (ev.isPassword) { mirrorKey = ""; return }
+        if (ev.packageName?.toString() == packageName) return           // PhoneDeck's own boxes already talk to the PC
+        val src = ev.source
+        if (src != null && src.isPassword) { mirrorKey = ""; return }
+        var cur = ev.text?.firstOrNull()?.toString() ?: ""
+        if (src != null && Build.VERSION.SDK_INT >= 26 && src.isShowingHintText) cur = ""
+        val now = System.currentTimeMillis()
+        val key = ev.windowId.toString() + "|" + ev.className + "|" + (src?.viewIdResourceName ?: "")
+        val before = ev.beforeText?.toString()
+        // first change in this box (or after a long pause): the text before the change is the starting point
+        val base = if (key != mirrorKey || now - mirrorAt > 30_000L) (before ?: cur) else mirrorText
+        mirrorKey = key; mirrorText = cur; mirrorAt = now
+        // the PC is typing here right now, or the link is down: remember the text, send nothing
+        if (remote || !LinkHub.connected || now - pcInputAt < 1200L) return
+        var p = 0
+        val max = minOf(base.length, cur.length)
+        while (p < max && base[p] == cur[p]) p++
+        var s = 0
+        while (s < max - p && base[base.length - 1 - s] == cur[cur.length - 1 - s]) s++
+        val removed = base.substring(p, base.length - s)
+        val added = cur.substring(p, cur.length - s)
+        val del = removed.codePointCount(0, removed.length)
+        if (del == 0 && added.isEmpty()) return
+        if (cur.isEmpty() && del >= 2) return                            // box cleared at once (message sent): do not wipe the PC text
+        if (del > 300 || added.length > 5000) return
+        MirrorSender.type(this, del, added)
+    }
     override fun onInterrupt() {}
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -184,6 +226,7 @@ class RemoteInputService : AccessibilityService() {
     fun onHubMessage(o: JSONObject) { onMsg(o) }
 
     private fun onMsg(o: JSONObject) {
+        when (o.optString("t")) { "text", "key", "combo", "clip" -> pcInputAt = System.currentTimeMillis() }
         when (o.optString("t")) {
             "enter" -> enter(o.optString("edge", "left"), o.optDouble("f", 0.5).toFloat())
             "exit" -> exitRemote()

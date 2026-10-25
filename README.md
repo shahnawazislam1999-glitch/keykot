@@ -159,3 +159,9 @@ Android 10+ stops background apps reading the clipboard, so copy on the tablet c
 - **Drag from the tablet to the PC:** hold the PC mouse on a file in the tablet's file manager, push to the PC edge, let go on the PC. The pointer overlay no longer hides the file manager from the lookup, truncated / combined names are handled, and "What happened last" in the PC mouse settings says why a grab failed. Needs "All files access" (now in the checklist).
 - **Copy on the tablet, paste on the PC:** the clipboard is read through a 1-pixel focus window (no helper screen needed), the text reaches the PC *before* the pointer is released, highlighted text is also read straight from the screen, and if the live link is down it is sent over HTTP. Xiaomi/HyperOS: use the "allow pop-ups in the background" button.
 - PC side: copy the new `server.py` and `tabletlink.py`, then run `stop-phonedeck.bat` and `start-lan.bat`.
+
+## Mirror typing (tablet -> PC)
+Settings > PC link on this tablet > **Mirror my typing to the PC** (off by default). With the PC link connected, text typed in any
+text box on the tablet (Google keyboard, voice typing, paste) is also typed on the PC at its cursor (Backspaces included).
+Password boxes and PhoneDeck's own screens are never sent. The PC needs no update (uses its normal keyboard socket).
+Code: `RemoteInputService.kt` mirrorTyping | `MirrorSender.kt`

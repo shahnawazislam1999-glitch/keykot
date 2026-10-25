@@ -119,6 +119,7 @@ object LinkHub {
         val l = link
         if (l == null) { ensure(a); return }
         l.tick()
+        MirrorSender.tick(a)
         if (l.connected) {
             finder?.reset()
         } else {
