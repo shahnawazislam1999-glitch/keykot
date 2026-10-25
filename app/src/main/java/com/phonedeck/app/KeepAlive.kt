@@ -87,6 +87,12 @@ object KeepAlive {
 class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent?) {
         if (!KeepAlive.wanted(ctx)) return
+        if (intent?.getBooleanExtra("mirror_toggle", false) == true) {      // notification button: mirror typing on / off
+            val p = Prefs.of(ctx)
+            p.edit().putBoolean("mirror_typing", !p.getBoolean("mirror_typing", false)).apply()
+            LinkHub.sendHello()
+            return
+        }
         KeepAlive.start(ctx)                       // also re-arms the next alarm
         LinkHub.ensure(ctx)
         if (intent?.getBooleanExtra("kick", false) == true) LinkHub.kickNow() else LinkHub.heartbeat()
@@ -177,6 +183,9 @@ class KeepAliveService : Service() {
             Intent(this, ClipReadActivity::class.java).putExtra("manual", true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val mirrorOn = Prefs.of(this).getBoolean("mirror_typing", false)
+        val mirror = PendingIntent.getBroadcast(this, 9, Intent(this, WatchdogReceiver::class.java).putExtra("mirror_toggle", true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, "keepalive")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("PhoneDeck")
@@ -186,13 +195,15 @@ class KeepAliveService : Service() {
             .setContentIntent(open)
             .addAction(android.R.drawable.ic_menu_send, "Send clipboard to PC", clip)
             .addAction(android.R.drawable.ic_popup_sync, "Reconnect now", kick)
+            .addAction(android.R.drawable.ic_menu_edit, if (mirrorOn) "Mirror typing: ON (tap = off)" else "Mirror typing: OFF (tap = on)", mirror)
             .build()
     }
 
     private fun updateNotification() {
         val text = LinkHub.statusText(this)
-        if (text != lastText) {
-            lastText = text
+        val sig = text + "|" + Prefs.of(this).getBoolean("mirror_typing", false)
+        if (sig != lastText) {
+            lastText = sig
             try { getSystemService(NotificationManager::class.java).notify(77, buildNotification(text)) } catch (e: Exception) { }
         }
     }
